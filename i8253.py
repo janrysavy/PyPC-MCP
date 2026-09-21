@@ -102,7 +102,7 @@ class i8253(device.Device):
                 self._timers[nr].counter_ini |= v
             elif self._timers[nr].latch_type == 2:
                 self._timers[nr].counter_ini &= 0x00ff
-                self._timers[nr].counter_ini |= (ushort)(v << 8)
+                self._timers[nr].counter_ini |= v << 8
             elif self._timers[nr].latch_type == 3:
                 if self._timers[nr].latch_n_cur == 2:
                     self._timers[nr].counter_ini &= 0xff00
