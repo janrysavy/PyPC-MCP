@@ -56,23 +56,27 @@ class IO:
         if self._test_mode:
             return 65535
 
-        rc = 0xff if not b16 else 0xffff
+        # An 8088 performs word I/O as two independent, ordered byte cycles.
+        # A missing device on one byte must not suppress the other cycle.
+        rc = 0xff
         handled = False
         if addr in self._io_map:
             rc = self._io_map[addr].IO_Read(addr)
             handled = True
-
-            if b16:
-                next_port = (addr + 1) & 0xffff;
-                if next_port in self._io_map:
-                    temp = self._io_map[next_port].IO_Read(next_port)
-                    rc |= temp << 8
-
         elif addr == 0x0210:  # verify expansion bus data
             rc = 0xa5
             handled = True
 
-        #print(f'IO {addr:04x} not handled for IN')
+        if b16:
+            next_port = (addr + 1) & 0xffff
+            high = 0xff
+            if next_port in self._io_map:
+                high = self._io_map[next_port].IO_Read(next_port)
+                handled = True
+            elif next_port == 0x0210:
+                high = 0xa5
+                handled = True
+            rc |= high << 8
 
         if self._trace_hook is not None:
             self._trace_hook('io_read', addr, rc, 2 if b16 else 1, handled)
@@ -97,29 +101,21 @@ class IO:
             return False
 
         rc = False
-
+        handled = False
         if addr in self._io_map:
             rc |= self._io_map[addr].IO_Write(addr, value & 255)
+            handled = True
 
-            if b16:
-                next_port = (addr + 1) & 0xffff
-                if next_port in self._io_map:
-                    rc |= self._io_map[next_port].IO_Write(next_port, value >> 8)
-
-            if self._trace_hook is not None:
-                self._trace_hook('io_write', addr, value, 2 if b16 else 1, True)
-            if self._hardware_trace_hook is not None:
-                self._hardware_trace_hook(
-                    'io_write', addr, value, 2 if b16 else 1, True,
-                    self._hardware_trace_address, self._hardware_trace_clock)
-            return rc
-
-        #print(f'IO {addr:04x} not handled for OUT')
+        if b16:
+            next_port = (addr + 1) & 0xffff
+            if next_port in self._io_map:
+                rc |= self._io_map[next_port].IO_Write(next_port, (value >> 8) & 255)
+                handled = True
 
         if self._trace_hook is not None:
-            self._trace_hook('io_write', addr, value, 2 if b16 else 1, False)
+            self._trace_hook('io_write', addr, value, 2 if b16 else 1, handled)
         if self._hardware_trace_hook is not None:
             self._hardware_trace_hook(
-                'io_write', addr, value, 2 if b16 else 1, False,
+                'io_write', addr, value, 2 if b16 else 1, handled,
                 self._hardware_trace_address, self._hardware_trace_clock)
-        return False
+        return rc
