@@ -21,10 +21,14 @@ import time
 import vncserver
 import vga
 import xtide
+import virtualfat16
 
 
 def ParseArguments():
     parser = argparse.ArgumentParser(description='Run the PyPC 8088 emulator')
+    parser.add_argument(
+        '--host-dir', metavar='PATH',
+        help='expose a host directory as a write-through FAT16 D: drive')
     parser.add_argument(
         '--video', choices=('cga', 'vga'), default='cga',
         help='select the emulated text/video adapter (default: cga)')
@@ -111,7 +115,7 @@ try:
         host_disk = virtualfat16.HostDirectoryFAT16(arguments.host_dir)
         disks.append(host_disk)
         print(f'Exposing {host_disk.directory} as guest drive D: (FAT16, write-through)')
-    devices.append(xtide.XTIDE(('harddisk.img',)));
+    devices.append(xtide.XTIDE(disks));
 
     roms = []
     roms.append(rom.Rom('roms/GLABIOS.ROM', 0xf000 * 16 + 0xe000))
