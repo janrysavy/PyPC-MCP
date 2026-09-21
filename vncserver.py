@@ -1,6 +1,7 @@
 import select
 import socket
 import threading
+import time
 
 
 class VNCServer:
@@ -296,12 +297,17 @@ class VNCServer:
 
             version = 0
             first = True
+            last_frame_time = 0.0
+            frame_interval = 1.0 / 20.0
             while True:
                 new_version = self._display.GetClock()
-                if new_version != version or first:
+                now = time.monotonic()
+                if ((new_version != version or first) and
+                        (first or now - last_frame_time >= frame_interval)):
                     version = new_version
                     self.VNCSendFrame(session, first)
                     first = False
+                    last_frame_time = now
 
                 if self.VNCWaitForEvent(session) == False:
                     break
