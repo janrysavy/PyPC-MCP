@@ -564,6 +564,9 @@ try:
                 events = [params]
             if not isinstance(events, list) or not events or len(events) > 32:
                 raise ValueError('events must contain 1..32 keyboard events')
+            # Validate the complete batch before queuing any input. A rejected
+            # request must not leave a modifier pressed or release an existing key.
+            scancodes = []
             for event in events:
                 if not isinstance(event, dict):
                     raise ValueError('keyboard event must be an object')
@@ -573,7 +576,9 @@ try:
                 pressed = event.get('pressed', True)
                 if not isinstance(pressed, bool):
                     raise ValueError('pressed must be boolean')
-                kb.PushKeyboardScancode(code if pressed else code | 0x80)
+                scancodes.append(code if pressed else code | 0x80)
+            for scancode in scancodes:
+                kb.PushKeyboardScancode(scancode)
             return {'accepted': len(events), 'state_revision': control['revision']}
 
         if method == 'input.state':
