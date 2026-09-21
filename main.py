@@ -117,7 +117,8 @@ try:
         'trace_active': False, 'instruction_hooks_active': False,
         'hardware_trace_active': False,
         'next_operation': 1, 'operations': {}, 'active_operation': None,
-        'run_until_id': None,
+        'run_until_id': None, 'run_until_start_clock': None,
+        'run_until_deadline_clock': None, 'run_until_requested_ns': None,
     }
     breakpoints = debugbreakpoints.BreakpointManager()
     trace = debugtrace.TraceRecorder()
@@ -209,7 +210,13 @@ try:
         if predicate_id is not None and breakpoints.contains(predicate_id):
             breakpoints.delete(predicate_id)
         control['run_until_id'] = None
+        control['run_until_start_clock'] = None
+        control['run_until_deadline_clock'] = None
+        control['run_until_requested_ns'] = None
         rpc_refresh_instruction_hooks()
+
+    def rpc_clock_to_ns(clock):
+        return (clock * 1_000_000_000) // 4_770_000
 
     def rpc_refresh_instruction_hooks():
         control['breakpoints_active'] = breakpoints.has_execution()
@@ -670,13 +677,17 @@ try:
 
         if method == 'execution.run_until':
             rpc_require_paused()
-            if 'max_emulated_ns' in params:
-                raise ValueError('max_emulated_ns is not supported by this emulator')
             predicate = params.get('predicate')
             if not isinstance(predicate, dict):
                 raise ValueError('predicate must be an object')
             if predicate.get('once', False):
                 raise ValueError('run_until predicates are always one-shot')
+            requested_ns = None
+            if 'max_emulated_ns' in params:
+                requested_ns = rpc_number(
+                    params.get('max_emulated_ns'), 'max_emulated_ns')
+                if requested_ns < 1 or requested_ns > 0xffffffffffffffff:
+                    raise ValueError('max_emulated_ns must be 1..2^64-1')
             predicate_params = dict(predicate)
             predicate_params['once'] = True
             predicate_result = breakpoints.create(
@@ -687,6 +698,14 @@ try:
                 breakpoints.delete(predicate_result['breakpoint_id'])
                 raise
             control['run_until_id'] = predicate_result['breakpoint_id']
+            deadline_clock = None
+            if requested_ns is not None:
+                cycles = max(1, (requested_ns * 4_770_000 +
+                                 1_000_000_000 - 1) // 1_000_000_000)
+                deadline_clock = state.GetClock() + cycles
+            control['run_until_start_clock'] = state.GetClock()
+            control['run_until_deadline_clock'] = deadline_clock
+            control['run_until_requested_ns'] = requested_ns
             rpc_refresh_instruction_hooks()
             control['paused'] = False
             control['step'] = False
@@ -696,6 +715,8 @@ try:
                 'operation_id': operation['operation_id'],
                 'predicate_id': predicate_result['breakpoint_id'],
                 'state': 'running',
+                **({'max_emulated_ns': requested_ns}
+                   if requested_ns is not None else {}),
             }
 
         if method == 'execution.step':
@@ -791,6 +812,28 @@ try:
                 details['predicate_id'] = interrupt_stop['breakpoint_id']
             rpc_last_stop('run_until' if is_run_until else 'breakpoint', **details)
             rpc_refresh_instruction_hooks()
+        deadline_clock = control['run_until_deadline_clock']
+        if (memory_stop is None and interrupt_stop is None and
+                deadline_clock is not None and state.GetClock() >= deadline_clock):
+            start_clock = control['run_until_start_clock']
+            requested_ns = control['run_until_requested_ns']
+            actual_clock = state.GetClock()
+            rpc_clear_run_until()
+            control['paused'] = True
+            actual_ns = rpc_clock_to_ns(actual_clock)
+            deadline_ns = rpc_clock_to_ns(deadline_clock)
+            details = {
+                'emulated_time_ns': actual_ns,
+                'emulated_time_limit': {
+                    'requested_duration_ns': requested_ns,
+                    'start_emulated_time_ns': rpc_clock_to_ns(start_clock),
+                    'deadline_emulated_time_ns': deadline_ns,
+                    'actual_stop_emulated_time_ns': actual_ns,
+                    'reached': True,
+                    'overshoot_ns': max(0, actual_ns - deadline_ns),
+                },
+            }
+            rpc_last_stop('emulated_time_limit', **details)
         control['skip_breakpoint_id'] = None
         if trace_before is not None:
             trace_before['clock_after'] = state.GetClock()

@@ -533,8 +533,10 @@ as `breakpoints.create` (memory predicates cannot use conditions):
 ```
 
 The predicate is private and one-shot. The result contains `operation_id`,
-`predicate_id`, and `state:"running"`. `max_emulated_ns` is not supported yet
-because PyPC does not currently expose an emulated nanosecond clock.
+`predicate_id`, and `state:"running"`. Optional positive `max_emulated_ns`
+sets a guest-time deadline using the 8088's emulated cycle clock. If the
+deadline wins, the stop kind is `emulated_time_limit` and the stop includes
+requested, start, deadline, actual, reached, and overshoot nanoseconds.
 
 ## `execution.wait`
 
@@ -669,7 +671,7 @@ API, classified for this PyPC transport:
 | `session.status` | Implemented | Fixed implicit `pypc` session. |
 | `session.start`, `session.stop` | Deferred | PyPC is attached to one already-created machine/image. |
 | `execution.continue` | Implemented | Resumes the CPU loop. |
-| `execution.run_until` | Implemented (execution predicates) | Private one-shot execution predicate using the breakpoint matcher. |
+| `execution.run_until` | Implemented (execution predicates and guest-time limit) | Private one-shot execution predicate using the breakpoint matcher, with an optional emulated-time deadline. |
 | `execution.wait` | Implemented (bounded polling) | Polls continue/run-until operations; timeout is non-blocking. |
 | `execution.pause` | Implemented | Pauses at an instruction boundary. |
 | `execution.step` | Implemented (`into`) | `over` needs temporary breakpoints. |
