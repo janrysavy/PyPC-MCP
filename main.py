@@ -210,12 +210,12 @@ try:
 
     def rpc_refresh_instruction_hooks():
         control['breakpoints_active'] = breakpoints.has_execution()
-        control['memory_watchpoints_active'] = breakpoints.has_memory_write()
+        control['memory_watchpoints_active'] = breakpoints.has_memory_access()
         control['interrupt_breakpoints_active'] = breakpoints.has_interrupt()
         control['instruction_hooks_active'] = (
             control['breakpoints_active'] or control['trace_active'])
-        p.SetMemoryWriteHook(
-            rpc_memory_write if control['memory_watchpoints_active'] else None)
+        p.SetMemoryAccessHook(
+            rpc_memory_access if control['memory_watchpoints_active'] else None)
         p.SetInterruptHook(
             rpc_interrupt if control['interrupt_breakpoints_active'] else None)
 
@@ -235,10 +235,11 @@ try:
             'registers_before': registers,
         }
 
-    def rpc_memory_write(physical, old, new, instruction_address):
+    def rpc_memory_access(kind, physical, old, new, instruction_address):
         if instruction_address is None:
             return None
         access = {
+            'kind': kind,
             'address': {'space': 'linear', 'offset': physical},
             'byte_count': 1,
             'instruction_address': {
@@ -250,8 +251,8 @@ try:
         }
         if old is not None:
             access['old_value'] = old
-        return breakpoints.check_memory_write(
-            physical, access, control['skip_breakpoint_id'])
+        return breakpoints.check_memory_access(
+            kind, physical, access, control['skip_breakpoint_id'])
 
     def rpc_interrupt(number, ah, al, interrupt_state, instruction_address):
         if instruction_address is None:

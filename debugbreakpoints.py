@@ -88,7 +88,9 @@ class BreakpointManager:
 
     def create(self, params: dict, id_prefix: str = 'bp', private: bool = False) -> dict:
         kind = params.get('kind', 'execution')
-        if kind not in ('execution', 'memory_write', 'interrupt'):
+        if kind not in (
+                'execution', 'memory_read', 'memory_write', 'memory_access',
+                'interrupt'):
             raise ValueError('unsupported breakpoint kind')
 
         event = None
@@ -129,26 +131,36 @@ class BreakpointManager:
                     raise ValueError('linear address must be within 1 MiB')
                 normalized_address = {'space': space, 'offset': offset}
                 physical = offset
-            elif space == 'linear' and kind == 'memory_write':
+            elif space in ('linear', 'segmented') and kind in (
+                    'memory_read', 'memory_write', 'memory_access'):
                 offset = self._number(address.get('offset'), 'address.offset')
-                if not 0 <= offset < 0x100000:
+                if space == 'segmented':
+                    segment = self._number(address.get('segment'), 'address.segment')
+                    if not 0 <= segment <= 0xffff or not 0 <= offset <= 0xffff:
+                        raise ValueError('segmented address values must be 16-bit')
+                    physical = ((segment << 4) + offset) & 0xfffff
+                elif not 0 <= offset < 0x100000:
                     raise ValueError('linear address must be within 1 MiB')
                 normalized_address = {'space': space, 'offset': offset}
-                physical = offset
+                if space == 'segmented':
+                    normalized_address['segment'] = segment
+                else:
+                    physical = offset
             else:
-                raise ValueError('memory_write address.space must be linear or segmented')
+                raise ValueError(
+                    'memory access address.space must be linear or segmented')
 
             length = self._number(params.get('length', 1), 'length')
-            if length != 1:
-                raise ValueError('this breakpoint kind currently supports length 1 only')
+            if length < 1 or length > 65536 or physical + length > 0x100000:
+                raise ValueError('memory breakpoint range must stay within 1 MiB')
         once = params.get('once', False)
         if not isinstance(once, bool):
             raise ValueError('once must be boolean')
 
         condition = params.get('condition')
         if condition is not None:
-            if kind == 'memory_write':
-                raise ValueError('memory_write breakpoints do not support conditions')
+            if kind in ('memory_read', 'memory_write', 'memory_access'):
+                raise ValueError('memory breakpoints do not support conditions')
             if not isinstance(condition, dict):
                 raise ValueError('condition must be an object')
             register = condition.get('register')
@@ -194,6 +206,11 @@ class BreakpointManager:
         return any(breakpoint.kind == 'memory_write'
                    for breakpoint in self._breakpoints.values())
 
+    def has_memory_access(self) -> bool:
+        return any(breakpoint.kind in (
+            'memory_read', 'memory_write', 'memory_access')
+            for breakpoint in self._breakpoints.values())
+
     def has_interrupt(self) -> bool:
         return any(breakpoint.kind == 'interrupt'
                    for breakpoint in self._breakpoints.values())
@@ -225,10 +242,13 @@ class BreakpointManager:
             return result
         return None
 
-    def check_memory_write(self, physical: int, access: dict,
-                           skip_id: str | None = None):
+    def check_memory_access(self, kind: str, physical: int, access: dict,
+                            skip_id: str | None = None):
         for breakpoint in list(self._breakpoints.values()):
-            if breakpoint.kind != 'memory_write' or breakpoint.physical != physical:
+            if breakpoint.kind not in (kind, 'memory_access'):
+                continue
+            if not (breakpoint.physical <= physical <
+                    breakpoint.physical + breakpoint.length):
                 continue
             if breakpoint.breakpoint_id == skip_id:
                 continue
@@ -240,6 +260,11 @@ class BreakpointManager:
                 del self._breakpoints[breakpoint.breakpoint_id]
             return result
         return None
+
+    def check_memory_write(self, physical: int, access: dict,
+                           skip_id: str | None = None):
+        """Compatibility wrapper for the original write-only hook."""
+        return self.check_memory_access('memory_write', physical, access, skip_id)
 
     def check_interrupt(self, number: int, ah: int, al: int,
                         registers: dict, skip_id: str | None = None):

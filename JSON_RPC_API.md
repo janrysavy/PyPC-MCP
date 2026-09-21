@@ -434,10 +434,11 @@ The result is the same as `input.keyboard` with `accepted:1`.
 ## `breakpoints.create`
 
 Creates an execution breakpoint checked before each 8088 instruction, a
-single-byte `memory_write` breakpoint checked after the instruction performs the
-write, or an `interrupt` breakpoint checked before a software interrupt handler.
-Execution addresses may be `physical`, `linear`, or `segmented`; memory write
-addresses may be `linear` or `segmented`:
+`memory_read`, `memory_write`, or combined `memory_access` breakpoint checked
+after the instruction performs the access, or an `interrupt` breakpoint checked
+before a software interrupt handler. Execution addresses may be `physical`,
+`linear`, or `segmented`; memory access addresses may be `linear` or
+`segmented`:
 
 ```json
 {
@@ -454,11 +455,12 @@ registers. Supported operators are `eq`, `ne`, `lt`, `le`, `gt`, and `ge`.
 `hit_count` counts condition matches; `skip` suppresses the first matches and
 `every` selects subsequent matches. A one-shot breakpoint is removed when it
 stops execution. The result is the normalized breakpoint descriptor, including
-its `breakpoint_id`. A `memory_write` descriptor currently requires `length:1`
-and does not accept a register condition. Its stop includes `access` with the
-linear address, byte count, new value, and accessing instruction address; RAM
-writes also include `old_value`. Device-backed writes expose no old value when
-the device cannot be read without side effects. An `interrupt` descriptor uses
+its `breakpoint_id`. Memory descriptors accept a positive contiguous `length`
+within the 1 MiB address space and do not accept register conditions. A stop
+includes `access` with `kind`, the actual linear byte address, byte count, old
+and new values, and the accessing instruction address. Reads report identical
+old and new values. Device-backed writes expose no old value when the device
+cannot be read without side effects. An `interrupt` descriptor uses
 an event selector such as `{"type":"software_interrupt","number":"0x21",
 "ah":"0x4c"}`; its stop reports the actual `AH`/`AL` and
 `phase:"before_handler"`. Interrupt conditions use the same register operators
@@ -515,9 +517,9 @@ No parameters. Exact alias of `execution.continue`.
 
 ## `execution.run_until`
 
-Requires a paused emulator. Parameters contain one `execution`, `memory_write`,
-or `interrupt` predicate using the same fields as `breakpoints.create` (memory
-writes are single-byte and cannot use conditions):
+Requires a paused emulator. Parameters contain one `execution`, `memory_read`,
+`memory_write`, `memory_access`, or `interrupt` predicate using the same fields
+as `breakpoints.create` (memory predicates cannot use conditions):
 
 ```json
 {
@@ -637,8 +639,8 @@ API, classified for this PyPC transport:
 | `memory.read` | Implemented | Bus-backed 1 MiB reads. |
 | `memory.write` | Implemented | Paused, SHA-guarded bus writes. |
 | `io.write` | Implemented | Paused byte write through the emulated I/O bus. |
-| `breakpoints.create` | Implemented (execution, memory-write, and interrupt subset) | Pre-instruction execution, single-byte exact memory-write, and semantic software-interrupt stops; no read/access kinds yet. |
-| `breakpoints.list/delete` | Implemented | Lists or removes normalized execution, memory-write, and interrupt breakpoints. |
+| `breakpoints.create` | Implemented (execution, memory-read/write/access, and interrupt subset) | Pre-instruction execution, bounded exact data-memory access, and semantic software-interrupt stops. |
+| `breakpoints.list/delete` | Implemented | Lists or removes normalized execution, memory-access, and interrupt breakpoints. |
 | `trace.start/read/stop` | Implemented (CPU subset) | Bounded instruction addresses, opcode bytes, clock intervals, and register snapshots; no memory/I/O effects yet. |
 | `debug.output.read` | Deferred | No bounded diagnostic-output ring. |
 | `debugger.execute_command` | Deferred | Deliberately no raw debugger command escape hatch. |

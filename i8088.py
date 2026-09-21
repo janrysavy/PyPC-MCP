@@ -13,8 +13,8 @@ class i8088:
         self._breakpoints = set()
         self._ignore_breakpoints: bool = False
         self._stop_reason: str = ''
-        self._memory_write_hook = None
-        self._memory_write_stop = None
+        self._memory_access_hook = None
+        self._memory_access_stop = None
         self._interrupt_hook = None
         self._interrupt_stop = None
         self._instruction_address = None
@@ -225,10 +225,16 @@ class i8088:
     def ReadMemByte(self, segment: int, offset: int) -> int:
         a = ((segment << 4) + offset) & self._MemMask
         if a < self._b._direct_ram_end:
-            return self._b._m._m[a]
-        rc = self._b.ReadByte(a)
-        self._state._clock += rc[1]
-        return rc[0]
+            value = self._b._m._m[a]
+        else:
+            rc = self._b.ReadByte(a)
+            self._state._clock += rc[1]
+            value = rc[0]
+        if (self._memory_access_hook is not None and
+                self._memory_access_stop is None):
+            self._memory_access_stop = self._memory_access_hook(
+                'memory_read', a, value, value, self._instruction_address)
+        return value
 
     def ReadMemWord(self, segment: int, offset: int) -> int:
         return self.ReadMemByte(segment, offset) + (self.ReadMemByte(segment, (offset + 1) & 0xffff) << 8)
@@ -237,14 +243,16 @@ class i8088:
         a = ((segment << 4) + offset) & self._MemMask
         if a < self._b._direct_ram_end:
             old = self._b._m._m[a]
-            if self._memory_write_hook is not None and self._memory_write_stop is None:
-                self._memory_write_stop = self._memory_write_hook(
-                    a, old, v, self._instruction_address)
+            if (self._memory_access_hook is not None and
+                    self._memory_access_stop is None):
+                self._memory_access_stop = self._memory_access_hook(
+                    'memory_write', a, old, v, self._instruction_address)
             self._b._m._m[a] = v
             return
-        if self._memory_write_hook is not None and self._memory_write_stop is None:
-            self._memory_write_stop = self._memory_write_hook(
-                a, None, v, self._instruction_address)
+        if (self._memory_access_hook is not None and
+                self._memory_access_stop is None):
+            self._memory_access_stop = self._memory_access_hook(
+                'memory_write', a, None, v, self._instruction_address)
         self._state._clock += self._b.WriteByte(a, v)
 
     def WriteMemWord(self, segment: int, offset: int, v: int):
@@ -707,7 +715,7 @@ class i8088:
     def Tick(self) -> int:
         cycle_count = 0  # cycles used for an instruction
         back_from_trace = False
-        if (self._memory_write_hook is not None or
+        if (self._memory_access_hook is not None or
                 self._interrupt_hook is not None):
             self._instruction_address = {
                 'segment': self._state._cs, 'offset': self._state._ip,
@@ -853,15 +861,30 @@ class i8088:
         self._stop_reason = ''
         return rc
 
-    def SetMemoryWriteHook(self, hook):
-        self._memory_write_hook = hook
+    def SetMemoryAccessHook(self, hook):
+        self._memory_access_hook = hook
         if hook is None:
-            self._memory_write_stop = None
+            self._memory_access_stop = None
+
+    def SetMemoryWriteHook(self, hook):
+        if hook is None:
+            self.SetMemoryAccessHook(None)
+            return
+
+        def write_only(kind, address, old, new, instruction_address):
+            if kind != 'memory_write':
+                return None
+            return hook(address, old, new, instruction_address)
+
+        self.SetMemoryAccessHook(write_only)
 
     def ConsumeMemoryWriteStop(self):
-        stop = self._memory_write_stop
-        self._memory_write_stop = None
+        stop = self._memory_access_stop
+        self._memory_access_stop = None
         return stop
+
+    def ConsumeMemoryAccessStop(self):
+        return self.ConsumeMemoryWriteStop()
 
     def SetInterruptHook(self, hook):
         self._interrupt_hook = hook
