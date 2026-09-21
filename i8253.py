@@ -6,6 +6,14 @@ import i8237
 import random
 
 
+_mode_names = (
+    "interrupt on terminal count", "hardware retriggerable one-shot",
+    "rate generator", "square wave generator",
+    "software triggered strobe", "hardware triggered strobe",
+    "rate generator (alias)", "square wave generator (alias)",
+)
+
+
 class i8253(device.Device):
     class Timer:
         counter_cur: int = 0
@@ -191,21 +199,34 @@ class i8253(device.Device):
             if timer.is_running == False:
                 continue
 
-            timer.counter_cur -= n_to_subtract
-
             counter_ini = timer.counter_ini
             divider = 0x10000 if counter_ini == 0 else counter_ini
-            n_interrupts = -timer.counter_cur // divider
+            periodic = timer.mode in (2, 3, 6, 7) and not timer.is_bcd
+            if periodic:
+                # Binary periodic modes produce one event per divisor, not
+                # only after another full divisor beyond zero. Preserve every
+                # elapsed period when a CPU tick spans multiple PIT events.
+                remaining = (timer.counter_cur or divider) - n_to_subtract
+                if remaining > 0:
+                    timer.counter_cur = remaining
+                    continue
+                n_interrupts = 1 + (-remaining // divider)
+                timer.counter_cur = (divider - (-remaining % divider)) & 0xffff
+            else:
+                # Other modes and BCD retain their existing approximation.
+                timer.counter_cur -= n_to_subtract
+                n_interrupts = -timer.counter_cur // divider
 
             if n_interrupts > 0:
                 # timer 1 is RAM refresh counter
                 if i == 1:
                     self._i8237.TickChannel0(n_interrupts)
 
-                if timer.mode != 1:
-                    timer.counter_cur = counter_ini - (-timer.counter_cur % divider)
-                else:
-                    timer.counter_cur &= 0xffff
+                if not periodic:
+                    if timer.mode != 1:
+                        timer.counter_cur = counter_ini - (-timer.counter_cur % divider)
+                    else:
+                        timer.counter_cur &= 0xffff
 
                 if i == 0:
                     timer.is_pending = True
