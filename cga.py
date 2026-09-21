@@ -37,6 +37,16 @@ class CGA(mda.MDA):
     def GetTextColumns(self):
         return 40 if self._cga_mode == self.CGAMode.Text40 else 80
 
+    def GetTextAddressMask(self):
+        return len(self._ram) - 1
+
+    def ReadTextByte(self, offset):
+        return self._ram[offset & self.GetTextAddressMask()]
+
+    def DecodeTextAttribute(self, attributes):
+        return (attributes & 0x0f, (attributes >> 4) & 0x07,
+                bool(attributes & 0x80))
+
     @override
     def RegisterDevice(self, mappings: dict):
         mappings[0x3d0] = self

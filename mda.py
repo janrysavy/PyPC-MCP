@@ -6,6 +6,7 @@ import time
 
 class MDA(graphics.Graphics):
     def __init__(self):
+        self._clock = 0
         self._ram: bytearray = bytearray(b'\xff' * 16384)
         self._hsync: bool = False
         self._last_update: int = 0
