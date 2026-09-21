@@ -2,7 +2,7 @@
 
 import unittest
 
-from vga import VGA
+from vga import BLINK_HALF_PERIOD_CYCLES, VGA
 
 
 class VGATextTests(unittest.TestCase):
@@ -100,6 +100,14 @@ class VGATextTests(unittest.TestCase):
         self.assertEqual(self.video.ReadTextByte(self.video._display_address), ord('B'))
         _, _, pixels = self.video.GetFrame()
         self.assertEqual(len(pixels), 640 * 400 * 4)
+
+    def test_blink_phase_is_stable_between_vnc_frames(self):
+        self.video.Tick(0, 0)
+        first_phase = self.video._blink_phase
+        self.video.Tick(0, 4_770_000 // 20)
+        self.assertEqual(self.video._blink_phase, first_phase)
+        self.video.Tick(0, BLINK_HALF_PERIOD_CYCLES)
+        self.assertNotEqual(self.video._blink_phase, first_phase)
 
 
 if __name__ == '__main__':

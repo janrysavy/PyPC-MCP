@@ -6,6 +6,10 @@ import cga
 import font
 
 
+CPU_CLOCK_HZ = 4_770_000
+BLINK_HALF_PERIOD_CYCLES = CPU_CLOCK_HZ // 2
+
+
 class VGA(cga.CGA):
     """Implement the VGA interfaces needed by DOS text-mode software.
 
@@ -250,6 +254,7 @@ class VGA(cga.CGA):
     @override
     def Tick(self, cycles: int, clock: int) -> bool:
         result = super().Tick(cycles, clock)
-        self._blink_phase = bool((clock // 200000) & 1)
-        self._cursor_phase = bool((clock // 100000) & 1)
+        phase = bool((clock // BLINK_HALF_PERIOD_CYCLES) & 1)
+        self._blink_phase = phase
+        self._cursor_phase = phase
         return result
