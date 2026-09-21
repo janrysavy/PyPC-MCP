@@ -1,5 +1,8 @@
 from enum import Enum
 
+# Store the final PF bit, not a boolean, to avoid shifting it in the hot path.
+_PARITY_FLAG = tuple(4 if value.bit_count() % 2 == 0 else 0 for value in range(256))
+
 class State8088:
     class RepMode(Enum):
         NotSet = 0
@@ -211,9 +214,8 @@ class State8088:
 
     def SetZSPFlags(self, v: int):
         assert v >= 0 and v <= 65535
-        self.SetFlagZ(v == 0)
-        self.SetFlagS(bool(v & 0x80))
-        self.SetFlagP(v)
+        self._flags = ((self._flags & ~0xc4) | (int(v == 0) << 6) |
+                       (v & 0x80) | _PARITY_FLAG[v & 0xff])
 
     def ClearFlagBit(self, bit: int):
         self._flags &= ~(1 << bit)
@@ -229,58 +231,55 @@ class State8088:
         return bool(self._flags & (1 << bit))
 
     def SetFlagC(self, state: bool):
-        self.SetFlag(0, state)
+        self._flags = (self._flags & ~0x1) | (state << 0)
 
     def GetFlagC(self) -> bool:
-        return self.GetFlag(0)
+        return bool(self._flags & 0x1)
 
     def SetFlagP(self, v: int):
-        y = v ^ (v >> 1)
-        y = y ^ (y >> 2)
-        y = y ^ (y >> 4)
-        self.SetFlag(2, (y & 1) == 0)
+        self._flags = (self._flags & ~4) | _PARITY_FLAG[v & 0xff]
 
     def GetFlagP(self) -> bool:
-        return self.GetFlag(2)
+        return bool(self._flags & 0x4)
 
     def SetFlagA(self, state: bool):
-        self.SetFlag(4, state)
+        self._flags = (self._flags & ~0x10) | (state << 4)
 
     def GetFlagA(self) -> bool:
-        return self.GetFlag(4)
+        return bool(self._flags & 0x10)
 
     def SetFlagZ(self, state: bool):
-        self.SetFlag(6, state)
+        self._flags = (self._flags & ~0x40) | (state << 6)
 
     def GetFlagZ(self) -> bool:
-        return self.GetFlag(6)
+        return bool(self._flags & 0x40)
 
     def SetFlagS(self, state: bool):
-        self.SetFlag(7, state)
+        self._flags = (self._flags & ~0x80) | (state << 7)
 
     def GetFlagS(self) -> bool:
-        return self.GetFlag(7)
+        return bool(self._flags & 0x80)
 
     def SetFlagT(self, state: bool):
-        self.SetFlag(8, state)
+        self._flags = (self._flags & ~0x100) | (state << 8)
 
     def GetFlagT(self) -> bool:
-        return self.GetFlag(8)
+        return bool(self._flags & 0x100)
 
     def SetFlagI(self, state: bool):
-        self.SetFlag(9, state)
+        self._flags = (self._flags & ~0x200) | (state << 9)
 
     def GetFlagI(self) -> bool:
-        return self.GetFlag(9)
+        return bool(self._flags & 0x200)
 
     def SetFlagD(self, state: bool):
-        self.SetFlag(10, state)
+        self._flags = (self._flags & ~0x400) | (state << 10)
 
     def GetFlagD(self) -> bool:
-        return self.GetFlag(10)
+        return bool(self._flags & 0x400)
 
     def SetFlagO(self, state: bool):
-        self.SetFlag(11, state)
+        self._flags = (self._flags & ~0x800) | (state << 11)
 
     def GetFlagO(self) -> bool:
-        return self.GetFlag(11)
+        return bool(self._flags & 0x800)
