@@ -68,6 +68,9 @@ Numbers may be JSON integers or strings accepted by Python `int(value, 0)`, such
 | `execution.run_until` | Resume execution until an execution predicate matches. |
 | `execution.wait` | Poll a continue or run-until operation. |
 | `execution.step` | Execute exactly one instruction, then pause. |
+| `trace.start` | Start a bounded CPU instruction trace while paused. |
+| `trace.read` | Page retained CPU trace events. |
+| `trace.stop` | Stop a CPU trace and report its retained event count. |
 
 ## `agent.capabilities`
 
@@ -96,7 +99,8 @@ Result:
     "io.read","io.write","input.keyboard","keyboard.scancode","input.state",
     "execution.pause","execution.continue","execution.go",
     "execution.run_until","execution.wait","execution.step",
-    "breakpoints.create","breakpoints.list","breakpoints.delete"]
+    "breakpoints.create","breakpoints.list","breakpoints.delete",
+    "trace.start","trace.read","trace.stop"]
 }
 ```
 
@@ -531,6 +535,41 @@ inside an RPC handler; use repeated bounded polls. A pending operation returns:
 A completed operation returns `state:"stopped"` and a structured `stop_reason`
 matching `session.status.last_stop`.
 
+## `trace.start`
+
+Requires a paused emulator. Starts a bounded trace for `instruction_count` steps
+(default `256`, maximum `65536`):
+
+```json
+{"detail":"normal","instruction_count":128}
+```
+
+Supported detail levels are `csip`, `short`, `normal`, and `long`. Events include
+`kind` (`instruction` or `hlt`), the segmented and physical instruction address,
+eight raw opcode bytes, and the emulated clock interval. HLT events represent
+clock advancement while the CPU is waiting for an interrupt; their opcode bytes
+are context, not an executed instruction. All levels except `csip` include the
+register snapshot before the event; `normal` and `long` also include the snapshot
+after it.
+PyPC does not yet record ordered memory/I/O effects in the CPU trace.
+
+## `trace.read`
+
+Reads retained events using a cursor:
+
+```json
+{"cursor":null,"limit":128}
+```
+
+The result contains `events`, `event_count`, `active`, `detail`, and an optional
+`next_cursor` such as `trace-128`. Cursors are local to the current trace.
+
+## `trace.stop`
+
+Stops recording without discarding retained events and returns `active:false` and
+the final `event_count`. A completed instruction-count trace can still be read
+and stopped.
+
 ## `execution.step`
 
 Accepts optional `{"mode":"into"}`. Requires the emulator to be paused. It
@@ -589,9 +628,9 @@ API, classified for this PyPC transport:
 | `io.write` | Implemented | Paused byte write through the emulated I/O bus. |
 | `breakpoints.create` | Implemented (execution subset) | Pre-instruction execution breakpoints with register conditions and hit filters. |
 | `breakpoints.list/delete` | Implemented (execution subset) | Lists or removes normalized execution breakpoints. |
+| `trace.start/read/stop` | Implemented (CPU subset) | Bounded instruction addresses, opcode bytes, clock intervals, and register snapshots; no memory/I/O effects yet. |
 | `debug.output.read` | Deferred | No bounded diagnostic-output ring. |
 | `debugger.execute_command` | Deferred | Deliberately no raw debugger command escape hatch. |
-| `trace.start/read/stop` | Deferred | No bounded CPU trace ring. |
 | `hardware.trace.start/read/stop` | Deferred | No hardware event recorder. |
 | `dos.trace.start/read/stop` | Deferred | No DOS file-operation recorder. |
 

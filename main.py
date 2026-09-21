@@ -7,6 +7,7 @@ import bus
 import cga
 import debugserver
 import debugbreakpoints
+import debugtrace
 import i8088
 import i8253
 import i8255
@@ -110,10 +111,12 @@ try:
         'snapshot_number': 0, 'snapshots': {},
         'last_stop': None, 'skip_breakpoint_id': None,
         'breakpoints_active': False,
+        'trace_active': False, 'instruction_hooks_active': False,
         'next_operation': 1, 'operations': {}, 'active_operation': None,
         'run_until_id': None,
     }
     breakpoints = debugbreakpoints.BreakpointManager()
+    trace = debugtrace.TraceRecorder()
 
     def rpc_params(request):
         params = request.get('params', {})
@@ -202,6 +205,27 @@ try:
             breakpoints.delete(predicate_id)
         control['run_until_id'] = None
         control['breakpoints_active'] = breakpoints.has_any()
+        rpc_refresh_instruction_hooks()
+
+    def rpc_refresh_instruction_hooks():
+        control['instruction_hooks_active'] = (
+            control['breakpoints_active'] or control['trace_active'])
+
+    def rpc_trace_event():
+        registers = rpc_registers()
+        physical = ((registers['segments']['cs'] << 4) + registers['ip']) & 0xfffff
+        opcode = bytes(b.ReadByte((physical + i) & 0xfffff)[0] for i in range(8))
+        return {
+            'kind': 'hlt' if registers['in_hlt'] else 'instruction',
+            'address': {
+                'space': 'segmented', 'segment': registers['segments']['cs'],
+                'offset': registers['ip'],
+            },
+            'physical': physical,
+            'opcode_hex': opcode.hex(),
+            'clock_before': registers['clock'],
+            'registers_before': registers,
+        }
 
     register_access = {
         'ax': (state.GetAX, state.SetAX), 'bx': (state.GetBX, state.SetBX),
@@ -269,6 +293,7 @@ try:
                     'execution.continue', 'execution.go', 'execution.run_until',
                     'execution.wait', 'execution.step',
                     'breakpoints.create', 'breakpoints.list', 'breakpoints.delete',
+                    'trace.start', 'trace.read', 'trace.stop',
                 ],
             }
 
@@ -467,6 +492,7 @@ try:
         if method == 'breakpoints.create':
             result = breakpoints.create(params)
             control['breakpoints_active'] = True
+            rpc_refresh_instruction_hooks()
             return result
 
         if method == 'breakpoints.list':
@@ -478,7 +504,28 @@ try:
                 raise ValueError('breakpoint_id is required')
             breakpoints.delete(breakpoint_id)
             control['breakpoints_active'] = breakpoints.has_any()
+            rpc_refresh_instruction_hooks()
             return {'breakpoint_id': breakpoint_id, 'deleted': True}
+
+        if method == 'trace.start':
+            rpc_require_paused()
+            detail = params.get('detail', 'normal')
+            instruction_count = rpc_number(
+                params.get('instruction_count', 256), 'instruction_count')
+            result = trace.start(detail, instruction_count)
+            control['trace_active'] = True
+            rpc_refresh_instruction_hooks()
+            return result
+
+        if method == 'trace.read':
+            limit = rpc_number(params.get('limit', 128), 'limit')
+            return trace.read(params.get('cursor'), limit)
+
+        if method == 'trace.stop':
+            result = trace.stop()
+            control['trace_active'] = False
+            rpc_refresh_instruction_hooks()
+            return result
 
         if method == 'execution.wait':
             operation_id = params.get('operation_id')
@@ -538,6 +585,7 @@ try:
                 raise
             control['run_until_id'] = predicate_result['breakpoint_id']
             control['breakpoints_active'] = True
+            rpc_refresh_instruction_hooks()
             control['paused'] = False
             control['step'] = False
             control['skip_breakpoint_id'] = None
@@ -596,11 +644,26 @@ try:
                     details['predicate_id'] = breakpoint['breakpoint_id']
                 rpc_last_stop('run_until' if is_run_until else 'breakpoint', **details)
                 continue
+        if control['instruction_hooks_active'] and control['trace_active']:
+            trace_before = rpc_trace_event()
+        else:
+            trace_before = None
         # print(f'{state.GetCS():04x}:{state.GetIP():04x} {GetRegisters(state)}')
         rc = p.Tick()
         if rc == -1:
             break
         control['revision'] += 1
+        if trace_before is not None:
+            trace_before['clock_after'] = state.GetClock()
+            trace_before['clock_delta'] = (
+                trace_before['clock_after'] - trace_before['clock_before'])
+            if trace.detail in ('normal', 'long'):
+                trace_before['registers_after'] = rpc_registers()
+            elif trace.detail == 'csip':
+                trace_before.pop('registers_before', None)
+            trace.capture(trace_before)
+            control['trace_active'] = trace.active
+            rpc_refresh_instruction_hooks()
         if control['step']:
             control['step'] = False
             control['paused'] = True
