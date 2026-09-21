@@ -1,0 +1,80 @@
+--- a/vga.py
++++ b/vga.py
+@@ -204,13 +204,13 @@
+         return False
+ 
+     def BiosWritePixel(self, x, y, color):
+-        xor = bool(color & 0x80)
+-        color &= 0x0f if self._graphics_mode == 0x12 else 0x7f
++        # INT 10h/0Ch uses bit 7 as XOR only in the 16-color mode.
++        # In mode 13h it is part of the full 8-bit palette index.
++        xor = self._graphics_mode == 0x12 and bool(color & 0x80)
++        color &= 0x0f if self._graphics_mode == 0x12 else 0xff
+         if self._graphics_mode == 0x13:
+             if 0 <= x < 320 and 0 <= y < 200:
+                 address = 0xa0000 + y * 320 + x
+-                if xor:
+-                    color ^= self.ReadByte(address)
+                 self.WriteByte(address, color)
+                 return True
+         elif self._graphics_mode == 0x12:
+--- a/tests/test_vga.py
++++ b/tests/test_vga.py
+@@ -190,10 +190,10 @@
+         self.assertTrue(self.video.BiosInterrupt(state))
+         state.SetAL(0x85)
+         self.assertTrue(self.video.BiosInterrupt(state))
+-        self.assertEqual(self.video.ReadByte(0xa0000 + 9 * 320 + 7), 0)
++        self.assertEqual(self.video.ReadByte(0xa0000 + 9 * 320 + 7), 0x85)
+         state.SetAH(0x0d)
+         self.assertTrue(self.video.BiosInterrupt(state))
+-        self.assertEqual(state.GetAL(), 0)
++        self.assertEqual(state.GetAL(), 0x85)
+ 
+         state.SetAX(0x0012)
+         self.assertTrue(self.video.BiosInterrupt(state))
+--- /dev/null
++++ b/tests/test_vga_pixel_colors.py
+@@ -0,0 +1,42 @@
++"""INT 10h/0Ch: bit 7 is a color bit in mode 13h, XOR only in mode 12h."""
++import pytest
++
++from state8088 import State8088
++from vga import VGA
++
++
++@pytest.mark.parametrize('initial', [0x00, 0x55, 0xff])
++@pytest.mark.parametrize('x,y', [(0, 0), (7, 9), (319, 199)])
++def test_mode13_all_color_indices_replace_existing_pixel(initial, x, y):
++    video = VGA(False)
++    assert video.BiosSetMode(0x13)
++    address = 0xa0000 + y * 320 + x
++    state = State8088()
++    state.SetCX(x)
++    state.SetDX(y)
++    for color in range(256):
++        video.WriteByte(address, initial)
++        state.SetAX(0x0c00 | color)
++        assert video.BiosInterrupt(state)
++        assert video.ReadByte(address) == color, (initial, x, y, color)
++        # A repeated write is still replacement, not an XOR toggle.
++        assert video.BiosInterrupt(state)
++        state.SetAH(0x0d)
++        assert video.BiosInterrupt(state)
++        assert state.GetAL() == color
++
++
++@pytest.mark.parametrize('initial', [0, 5, 15])
++@pytest.mark.parametrize('x,y', [(0, 0), (7, 9), (639, 479)])
++def test_mode12_retains_bit7_xor_and_neighbor_pixels(initial, x, y):
++    video = VGA(False)
++    assert video.BiosSetMode(0x12)
++    neighbor = x ^ 1
++    assert video.BiosWritePixel(neighbor, y, 3)
++    for color in range(16):
++        assert video.BiosWritePixel(x, y, initial)
++        assert video.BiosWritePixel(x, y, 0x80 | color)
++        assert video.BiosReadPixel(x, y) == initial ^ color
++        assert video.BiosReadPixel(neighbor, y) == 3
++        assert video.BiosWritePixel(x, y, 0x80 | color)
++        assert video.BiosReadPixel(x, y) == initial

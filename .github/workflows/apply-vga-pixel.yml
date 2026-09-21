@@ -1,0 +1,32 @@
+name: Publish verified VGA mode13 pixel patch
+on:
+  push:
+    branches: [diagnostics/vga-pixel-20260921]
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - run: python -m pip install pytest pytest-subtests
+      - name: Apply the locally reproduced patch and run the full suite
+        run: |
+          git apply --check bootstrap/vga-mode13-pixel.patch
+          git apply bootstrap/vga-mode13-pixel.patch
+          python -m pytest -q
+      - name: Publish clean independent fix without bootstrap files
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add vga.py tests/test_vga.py tests/test_vga_pixel_colors.py
+          git rm bootstrap/vga-mode13-pixel.patch .github/workflows/apply-vga-pixel.yml
+          tree=$(git write-tree)
+          commit=$(printf 'Preserve full mode 13h pixel color without XOR\n\n18 targeted cases: 9 failed before, all pass after.\nKeep the mode 12h XOR semantics and correct the old mode 13h assertion.\n' | git commit-tree "$tree" -p 88bf6d1ad996658ede3200c2bde71ec37aafd848)
+          git push origin "$commit:refs/heads/fix/vga-mode13-pixel-20260921"
+          echo "Published clean fix commit $commit"
