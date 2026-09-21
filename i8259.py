@@ -60,6 +60,7 @@ class i8259(device.Device):
             mask = 1 << i
             if (self._irr & mask) == mask and (self._isr & mask) == 0 and (self._imr & mask) == 0:
                 return i
+        return 255
 
     def SetTraceHook(self, hook):
         self._trace_hook = hook
@@ -101,13 +102,14 @@ class i8259(device.Device):
     def SetIRQBeingServiced(self, interrupt_nr: int):
         self._trace_event(
             'irq_dispatch', interrupt_nr, self._int_offset + interrupt_nr)
+        # INTA consumes this edge; a new edge may arrive before EOI.
+        self._clear_requests(1 << interrupt_nr)
         if self._auto_eoi == False:
             self._int_in_service = interrupt_nr
             mask = 1 << interrupt_nr
             self._isr |= mask
         else:
             mask = ~(1 << interrupt_nr)
-            self._clear_requests(1 << interrupt_nr)
             self._isr &= mask
             self._int_in_service = -1
 
@@ -158,7 +160,6 @@ class i8259(device.Device):
                             i = value & 7
 
                             mask = ~(1 << i)
-                            self._clear_requests(1 << i)
                             self._isr &= mask
                             if i == self._int_in_service:
                                 self._int_in_service = -1
@@ -166,7 +167,6 @@ class i8259(device.Device):
                         else:
                             if self._int_in_service != -1:
                                 mask = ~(1 << self._int_in_service)
-                                self._clear_requests(1 << self._int_in_service)
                                 self._isr &= mask
                                 self._int_in_service = -1
 
