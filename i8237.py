@@ -167,7 +167,7 @@ class i8237(device.Device):
         count -= 1
         if count == -1:
             self._reached_tc[channel] = True
-        _channel_word_count[channel].SetValue(count & 0xffff)
+        self._channel_word_count[channel].SetValue(count & 0xffff)
 
         return rc
 
@@ -186,18 +186,18 @@ class i8237(device.Device):
             return False
 
         addr = self._channel_address_register[channel].GetValue()
-        full_addr = (_channel_page[channel] << 16) | addr
+        full_addr = (self._channel_page[channel] << 16) | addr
         addr += 1
         self._channel_address_register[channel].SetValue(addr & 0xffff)
 
         self._b.WriteByte(full_addr, value)
 
-        count = _channel_word_count[channel].GetValue()
+        count = self._channel_word_count[channel].GetValue()
         count -= 1
         if count == -1:
             self._reached_tc[channel] = True
 
-        _channel_word_count[channel].SetValue(count & 0xffff)
+        self._channel_word_count[channel].SetValue(count & 0xffff)
 
         return True
 
