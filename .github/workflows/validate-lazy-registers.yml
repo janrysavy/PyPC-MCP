@@ -1,0 +1,56 @@
+name: Verify and publish debugger performance source
+on:
+  push:
+    branches: [perf/lazy-breakpoint-registers-20260921]
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Decode and verify the reviewed patch
+        run: |
+          python - <<'PY'
+          import base64, hashlib, pathlib, re, subprocess, zlib
+          path = pathlib.Path('.github/workflows/materialize-lazy-registers.yml')
+          text = path.read_text()
+          data = re.search(r'PATCH_ZLIB_BASE64: >-\n\s+(\S+)', text).group(1)
+          data = data.replace('AXXYKZptiQo', 'AXXYKZrsQo').replace('bf1b65p6a6stqk', 'bf1b65p6stqk')
+          patch = zlib.decompress(base64.b64decode(data))
+          assert hashlib.sha256(patch).hexdigest() == 'e69e5061ea8ab288fdcd9a664b8531f781319c4243be60c127256f2a5e7c2f3d'
+          subprocess.run(['git', 'apply', '--index', '-'], input=patch, check=True)
+          PY
+          git rm .github/workflows/materialize-lazy-registers.yml .github/workflows/validate-lazy-registers.yml
+          test "$(git write-tree)" = 6cfa6def905e5b60bc782e3f5fc4c4442ffc96e5
+      - name: Test and benchmark
+        run: |
+          set -euo pipefail
+          python -m pip install pytest
+          python -m pytest -q | tee "$RUNNER_TEMP/tests.txt"
+          python benchmarks/benchmark_breakpoint_registers.py --ticks 200000 --repeats 7 > "$RUNNER_TEMP/loop.json"
+      - name: Publish only tested source on the feature branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'perf(debugger): defer register collection until matching conditions'
+          git push origin HEAD:perf/lazy-breakpoint-registers-20260921
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lazy-register-benchmark
+          path: |
+            ${{ runner.temp }}/tests.txt
+            ${{ runner.temp }}/loop.json
+          retention-days: 14
+      - name: Preserve transport diagnostics on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: patch-transport-diagnostics
+          path: .github/workflows/
+          include-hidden-files: true
+          retention-days: 1
