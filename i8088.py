@@ -15,6 +15,7 @@ class i8088:
         self._stop_reason: str = ''
         self._memory_access_hook = None
         self._memory_access_stop = None
+        self._memory_trace_hook = None
         self._interrupt_hook = None
         self._interrupt_stop = None
         self._instruction_address = None
@@ -234,6 +235,8 @@ class i8088:
                 self._memory_access_stop is None):
             self._memory_access_stop = self._memory_access_hook(
                 'memory_read', a, value, value, self._instruction_address)
+        if self._memory_trace_hook is not None:
+            self._memory_trace_hook('memory_read', a, value, value)
         return value
 
     def ReadMemWord(self, segment: int, offset: int) -> int:
@@ -248,12 +251,16 @@ class i8088:
                 self._memory_access_stop = self._memory_access_hook(
                     'memory_write', a, old, v, self._instruction_address)
             self._b._m._m[a] = v
+            if self._memory_trace_hook is not None:
+                self._memory_trace_hook('memory_write', a, old, v)
             return
         if (self._memory_access_hook is not None and
                 self._memory_access_stop is None):
             self._memory_access_stop = self._memory_access_hook(
                 'memory_write', a, None, v, self._instruction_address)
         self._state._clock += self._b.WriteByte(a, v)
+        if self._memory_trace_hook is not None:
+            self._memory_trace_hook('memory_write', a, None, v)
 
     def WriteMemWord(self, segment: int, offset: int, v: int):
         self.WriteMemByte(segment, offset, v & 0xff);
@@ -865,6 +872,12 @@ class i8088:
         self._memory_access_hook = hook
         if hook is None:
             self._memory_access_stop = None
+
+    def SetMemoryTraceHook(self, hook):
+        self._memory_trace_hook = hook
+
+    def SetIOTraceHook(self, hook):
+        self._io.SetTraceHook(hook)
 
     def SetMemoryWriteHook(self, hook):
         if hook is None:

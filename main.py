@@ -218,6 +218,10 @@ try:
             rpc_memory_access if control['memory_watchpoints_active'] else None)
         p.SetInterruptHook(
             rpc_interrupt if control['interrupt_breakpoints_active'] else None)
+        p.SetMemoryTraceHook(
+            rpc_trace_memory if control['trace_active'] else None)
+        p.SetIOTraceHook(
+            rpc_trace_io if control['trace_active'] else None)
 
     def rpc_trace_event():
         registers = rpc_registers()
@@ -233,7 +237,34 @@ try:
             'opcode_hex': opcode.hex(),
             'clock_before': registers['clock'],
             'registers_before': registers,
+            'effects': [],
         }
+
+    def rpc_trace_memory(kind, physical, old, new):
+        event = control.get('trace_event')
+        if event is None:
+            return
+        effect = {
+            'kind': kind,
+            'address': {'space': 'linear', 'offset': physical},
+            'byte_count': 1,
+        }
+        if kind == 'memory_read':
+            effect['data_base64'] = base64.b64encode(bytes((new,))).decode('ascii')
+        else:
+            effect['before_base64'] = (
+                None if old is None else base64.b64encode(bytes((old,))).decode('ascii'))
+            effect['after_base64'] = base64.b64encode(bytes((new,))).decode('ascii')
+        event['effects'].append(effect)
+
+    def rpc_trace_io(kind, port, value, byte_count, handled):
+        event = control.get('trace_event')
+        if event is None:
+            return
+        event['effects'].append({
+            'kind': kind, 'port': port, 'byte_count': byte_count,
+            'value': value, 'handled': bool(handled),
+        })
 
     def rpc_memory_access(kind, physical, old, new, instruction_address):
         if instruction_address is None:
@@ -678,9 +709,11 @@ try:
             trace_before = rpc_trace_event()
         else:
             trace_before = None
+        control['trace_event'] = trace_before
         # print(f'{state.GetCS():04x}:{state.GetIP():04x} {GetRegisters(state)}')
         rc = p.Tick()
         if rc == -1:
+            control['trace_event'] = None
             break
         control['revision'] += 1
         memory_stop = (p.ConsumeMemoryWriteStop()
@@ -727,6 +760,7 @@ try:
             elif trace.detail == 'csip':
                 trace_before.pop('registers_before', None)
             trace.capture(trace_before)
+            control['trace_event'] = None
             control['trace_active'] = trace.active
             rpc_refresh_instruction_hooks()
         if control['step']:

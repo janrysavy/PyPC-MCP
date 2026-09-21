@@ -563,8 +563,11 @@ eight raw opcode bytes, and the emulated clock interval. HLT events represent
 clock advancement while the CPU is waiting for an interrupt; their opcode bytes
 are context, not an executed instruction. All levels except `csip` include the
 register snapshot before the event; `normal` and `long` also include the snapshot
-after it.
-PyPC does not yet record ordered memory/I/O effects in the CPU trace.
+after it. Every event also has ordered `effects`. Data-memory effects are
+`memory_read` or `memory_write` with a linear address, byte count, and base64
+payload; I/O effects are `io_read` or `io_write` with port, byte count, value,
+and whether the port was handled by a device. Instruction fetches are not
+reported as memory effects.
 
 ## `trace.read`
 
@@ -641,7 +644,7 @@ API, classified for this PyPC transport:
 | `io.write` | Implemented | Paused byte write through the emulated I/O bus. |
 | `breakpoints.create` | Implemented (execution, memory-read/write/access, and interrupt subset) | Pre-instruction execution, bounded exact data-memory access, and semantic software-interrupt stops. |
 | `breakpoints.list/delete` | Implemented | Lists or removes normalized execution, memory-access, and interrupt breakpoints. |
-| `trace.start/read/stop` | Implemented (CPU subset) | Bounded instruction addresses, opcode bytes, clock intervals, and register snapshots; no memory/I/O effects yet. |
+| `trace.start/read/stop` | Implemented (CPU subset) | Bounded instruction addresses, opcode bytes, clock intervals, register snapshots, and ordered data-memory/I/O effects. |
 | `debug.output.read` | Deferred | No bounded diagnostic-output ring. |
 | `debugger.execute_command` | Deferred | Deliberately no raw debugger command escape hatch. |
 | `hardware.trace.start/read/stop` | Deferred | No hardware event recorder. |
