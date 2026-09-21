@@ -15,6 +15,8 @@ class i8088:
         self._stop_reason: str = ''
         self._memory_write_hook = None
         self._memory_write_stop = None
+        self._interrupt_hook = None
+        self._interrupt_stop = None
         self._instruction_address = None
 
         self._state: state8088.State8088 = state8088.State8088()
@@ -705,7 +707,8 @@ class i8088:
     def Tick(self) -> int:
         cycle_count = 0  # cycles used for an instruction
         back_from_trace = False
-        if self._memory_write_hook is not None:
+        if (self._memory_write_hook is not None or
+                self._interrupt_hook is not None):
             self._instruction_address = {
                 'segment': self._state._cs, 'offset': self._state._ip,
             }
@@ -858,6 +861,16 @@ class i8088:
     def ConsumeMemoryWriteStop(self):
         stop = self._memory_write_stop
         self._memory_write_stop = None
+        return stop
+
+    def SetInterruptHook(self, hook):
+        self._interrupt_hook = hook
+        if hook is None:
+            self._interrupt_stop = None
+
+    def ConsumeInterruptStop(self):
+        stop = self._interrupt_stop
+        self._interrupt_stop = None
         return stop
 
     def GetBreakpoints(self) -> set:
@@ -1830,6 +1843,14 @@ class i8088:
                 int = 4
             else:
                 int = self.GetPcByte()
+
+            if self._interrupt_hook is not None and self._interrupt_stop is None:
+                self._interrupt_stop = self._interrupt_hook(
+                    int, self._state.GetAH(), self._state.GetAL(),
+                    self._state, self._instruction_address)
+                if self._interrupt_stop is not None:
+                    self._state._ip = self._instruction_address['offset']
+                    return 0
 
             addr = (int * 4) & 0xffff
 

@@ -112,6 +112,7 @@ try:
         'last_stop': None, 'skip_breakpoint_id': None,
         'breakpoints_active': False,
         'memory_watchpoints_active': False,
+        'interrupt_breakpoints_active': False,
         'trace_active': False, 'instruction_hooks_active': False,
         'next_operation': 1, 'operations': {}, 'active_operation': None,
         'run_until_id': None,
@@ -210,10 +211,13 @@ try:
     def rpc_refresh_instruction_hooks():
         control['breakpoints_active'] = breakpoints.has_execution()
         control['memory_watchpoints_active'] = breakpoints.has_memory_write()
+        control['interrupt_breakpoints_active'] = breakpoints.has_interrupt()
         control['instruction_hooks_active'] = (
             control['breakpoints_active'] or control['trace_active'])
         p.SetMemoryWriteHook(
             rpc_memory_write if control['memory_watchpoints_active'] else None)
+        p.SetInterruptHook(
+            rpc_interrupt if control['interrupt_breakpoints_active'] else None)
 
     def rpc_trace_event():
         registers = rpc_registers()
@@ -246,7 +250,14 @@ try:
         }
         if old is not None:
             access['old_value'] = old
-        return breakpoints.check_memory_write(physical, access)
+        return breakpoints.check_memory_write(
+            physical, access, control['skip_breakpoint_id'])
+
+    def rpc_interrupt(number, ah, al, interrupt_state, instruction_address):
+        if instruction_address is None:
+            return None
+        return breakpoints.check_interrupt(
+            number, ah, al, rpc_flat_registers(), control['skip_breakpoint_id'])
 
     register_access = {
         'ax': (state.GetAX, state.SetAX), 'bx': (state.GetBX, state.SetBX),
@@ -689,6 +700,23 @@ try:
                 details['predicate_id'] = memory_stop['breakpoint_id']
             rpc_last_stop('run_until' if is_run_until else 'breakpoint', **details)
             rpc_refresh_instruction_hooks()
+        interrupt_stop = (p.ConsumeInterruptStop()
+                          if control['interrupt_breakpoints_active'] else None)
+        if memory_stop is None and interrupt_stop is not None:
+            control['paused'] = True
+            is_run_until = interrupt_stop['breakpoint_id'] == control['run_until_id']
+            if control['run_until_id'] is not None:
+                rpc_clear_run_until()
+            details = {
+                'breakpoint_id': interrupt_stop['breakpoint_id'],
+                'event': interrupt_stop['event'],
+                'hit_count': interrupt_stop['hit_count'],
+            }
+            if is_run_until:
+                details['predicate_id'] = interrupt_stop['breakpoint_id']
+            rpc_last_stop('run_until' if is_run_until else 'breakpoint', **details)
+            rpc_refresh_instruction_hooks()
+        control['skip_breakpoint_id'] = None
         if trace_before is not None:
             trace_before['clock_after'] = state.GetClock()
             trace_before['clock_delta'] = (

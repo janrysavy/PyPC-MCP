@@ -14,12 +14,13 @@ _OPERATORS = {'eq', 'ne', 'lt', 'le', 'gt', 'ge'}
 class _Breakpoint:
     breakpoint_id: str
     kind: str
-    address: dict
-    physical: int
+    address: dict | None
+    physical: int | None
     length: int
     once: bool
     condition: dict | None
     hit_filter: dict
+    event: dict | None = None
     private: bool = False
     hit_count: int = 0
 
@@ -54,12 +55,15 @@ class _Breakpoint:
         result = {
             'breakpoint_id': self.breakpoint_id,
             'kind': self.kind,
-            'address': dict(self.address),
-            'length': self.length,
             'once': self.once,
             'hit_filter': dict(self.hit_filter),
             'hit_count': self.hit_count,
         }
+        if self.kind == 'interrupt':
+            result['event'] = dict(self.event)
+        else:
+            result['address'] = dict(self.address)
+            result['length'] = self.length
         if self.condition is not None:
             result['condition'] = dict(self.condition)
         return result
@@ -84,47 +88,66 @@ class BreakpointManager:
 
     def create(self, params: dict, id_prefix: str = 'bp', private: bool = False) -> dict:
         kind = params.get('kind', 'execution')
-        if kind not in ('execution', 'memory_write'):
-            raise ValueError('only execution and memory_write breakpoints are supported')
+        if kind not in ('execution', 'memory_write', 'interrupt'):
+            raise ValueError('unsupported breakpoint kind')
 
-        address = params.get('address')
-        if not isinstance(address, dict):
-            raise ValueError('address must be an object')
-        space = address.get('space', 'physical')
-        if space == 'segmented':
-            segment = self._number(address.get('segment'), 'address.segment')
-            offset = self._number(address.get('offset'), 'address.offset')
-            if not 0 <= segment <= 0xffff or not 0 <= offset <= 0xffff:
-                raise ValueError('segmented address values must be 16-bit')
-            normalized_address = {
-                'space': 'segmented', 'segment': segment, 'offset': offset,
-            }
-            physical = ((segment << 4) + offset) & 0xfffff
-        elif space in ('physical', 'linear') and kind == 'execution':
-            offset = self._number(address.get('offset'), 'address.offset')
-            if not 0 <= offset < 0x100000:
-                raise ValueError('linear address must be within 1 MiB')
-            normalized_address = {'space': space, 'offset': offset}
-            physical = offset
-        elif space == 'linear' and kind == 'memory_write':
-            offset = self._number(address.get('offset'), 'address.offset')
-            if not 0 <= offset < 0x100000:
-                raise ValueError('linear address must be within 1 MiB')
-            normalized_address = {'space': space, 'offset': offset}
-            physical = offset
+        event = None
+        if kind == 'interrupt':
+            raw_event = params.get('event')
+            if not isinstance(raw_event, dict) or raw_event.get('type') != 'software_interrupt':
+                raise ValueError('interrupt breakpoints require event.type=software_interrupt')
+            number = self._number(raw_event.get('number'), 'event.number')
+            if not 0 <= number <= 0xff:
+                raise ValueError('event.number must be an 8-bit value')
+            event = {'type': 'software_interrupt', 'number': number}
+            for name in ('ah', 'al'):
+                if name in raw_event:
+                    value = self._number(raw_event[name], f'event.{name}')
+                    if not 0 <= value <= 0xff:
+                        raise ValueError(f'event.{name} must be an 8-bit value')
+                    event[name] = value
+            normalized_address = None
+            physical = None
+            length = 1
         else:
-            raise ValueError('memory_write address.space must be linear or segmented')
+            address = params.get('address')
+            if not isinstance(address, dict):
+                raise ValueError('address must be an object')
+            space = address.get('space', 'physical')
+            if space == 'segmented':
+                segment = self._number(address.get('segment'), 'address.segment')
+                offset = self._number(address.get('offset'), 'address.offset')
+                if not 0 <= segment <= 0xffff or not 0 <= offset <= 0xffff:
+                    raise ValueError('segmented address values must be 16-bit')
+                normalized_address = {
+                    'space': 'segmented', 'segment': segment, 'offset': offset,
+                }
+                physical = ((segment << 4) + offset) & 0xfffff
+            elif space in ('physical', 'linear') and kind == 'execution':
+                offset = self._number(address.get('offset'), 'address.offset')
+                if not 0 <= offset < 0x100000:
+                    raise ValueError('linear address must be within 1 MiB')
+                normalized_address = {'space': space, 'offset': offset}
+                physical = offset
+            elif space == 'linear' and kind == 'memory_write':
+                offset = self._number(address.get('offset'), 'address.offset')
+                if not 0 <= offset < 0x100000:
+                    raise ValueError('linear address must be within 1 MiB')
+                normalized_address = {'space': space, 'offset': offset}
+                physical = offset
+            else:
+                raise ValueError('memory_write address.space must be linear or segmented')
 
-        length = self._number(params.get('length', 1), 'length')
-        if length != 1:
-            raise ValueError('this breakpoint kind currently supports length 1 only')
+            length = self._number(params.get('length', 1), 'length')
+            if length != 1:
+                raise ValueError('this breakpoint kind currently supports length 1 only')
         once = params.get('once', False)
         if not isinstance(once, bool):
             raise ValueError('once must be boolean')
 
         condition = params.get('condition')
         if condition is not None:
-            if kind != 'execution':
+            if kind == 'memory_write':
                 raise ValueError('memory_write breakpoints do not support conditions')
             if not isinstance(condition, dict):
                 raise ValueError('condition must be an object')
@@ -151,7 +174,7 @@ class BreakpointManager:
         self._next_id += 1
         breakpoint = _Breakpoint(
             breakpoint_id, kind, normalized_address, physical, length, once, condition,
-            {'skip': skip, 'every': every}, private,
+            {'skip': skip, 'every': every}, event, private,
         )
         self._breakpoints[breakpoint_id] = breakpoint
         return breakpoint.to_dict()
@@ -169,6 +192,10 @@ class BreakpointManager:
 
     def has_memory_write(self) -> bool:
         return any(breakpoint.kind == 'memory_write'
+                   for breakpoint in self._breakpoints.values())
+
+    def has_interrupt(self) -> bool:
+        return any(breakpoint.kind == 'interrupt'
                    for breakpoint in self._breakpoints.values())
 
     def delete(self, breakpoint_id: str) -> None:
@@ -198,14 +225,45 @@ class BreakpointManager:
             return result
         return None
 
-    def check_memory_write(self, physical: int, access: dict):
+    def check_memory_write(self, physical: int, access: dict,
+                           skip_id: str | None = None):
         for breakpoint in list(self._breakpoints.values()):
             if breakpoint.kind != 'memory_write' or breakpoint.physical != physical:
+                continue
+            if breakpoint.breakpoint_id == skip_id:
                 continue
             if not breakpoint.selected_hit():
                 continue
             result = breakpoint.to_dict()
             result['access'] = dict(access)
+            if breakpoint.once:
+                del self._breakpoints[breakpoint.breakpoint_id]
+            return result
+        return None
+
+    def check_interrupt(self, number: int, ah: int, al: int,
+                        registers: dict, skip_id: str | None = None):
+        for breakpoint in list(self._breakpoints.values()):
+            if breakpoint.kind != 'interrupt':
+                continue
+            if breakpoint.breakpoint_id == skip_id:
+                continue
+            event = breakpoint.event
+            if event['number'] != number:
+                continue
+            if 'ah' in event and event['ah'] != ah:
+                continue
+            if 'al' in event and event['al'] != al:
+                continue
+            if not breakpoint.matches_condition(registers):
+                continue
+            if not breakpoint.selected_hit():
+                continue
+            result = breakpoint.to_dict()
+            result['event'] = {
+                'type': 'software_interrupt', 'phase': 'before_handler',
+                'number': number, 'ah': ah, 'al': al,
+            }
             if breakpoint.once:
                 del self._breakpoints[breakpoint.breakpoint_id]
             return result
