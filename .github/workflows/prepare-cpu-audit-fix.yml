@@ -1,0 +1,87 @@
+name: Prepare CPU audit fix
+on:
+  push:
+    branches: [fix/cpu-debugger-regressions-20260921]
+    paths: [.github/workflows/prepare-cpu-audit-fix.yml]
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Apply guarded CPU-only transformations
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          p = Path('i8088.py')
+          s = p.read_text()
+          blob = hashlib.sha1(b'blob ' + str(len(s.encode())).encode() + b'\0' + s.encode()).hexdigest()
+          assert blob == '71f4196a5d808856fed7a19bd1c1bdd6b5e0ffee', blob
+          first = s.index('    # value, segment_a_valid, segment/, address of value, number of cycles\n')
+          second = s.index('    def GetRegisterMem(self, reg: int, mod: int, w: bool):', first)
+          s = s[:first] + s[second:]
+          s = s.replace('def GetRegisterMem(self, reg: int, mod: int, w: bool):', 'def GetRegisterMem(self, reg: int, mod: int, w: bool, read: bool = True):')
+          old = '            v = self.ReadMemWord(segment, a) if w else self.ReadMemByte(segment, a)'
+          assert s.count(old) == 2
+          s = s.replace(old, '            v = 0\n            if read:\n                v = self.ReadMemWord(segment, a) if w else self.ReadMemByte(segment, a)')
+          s = s.replace('self.GetRegisterMem(mreg, mod, word)', 'self.GetRegisterMem(mreg, mod, word, read=False)')
+          lea = '        (val, a_valid, seg, addr, get_cycles) = self.GetRegisterMem(rm, mod, True)\n        self.PutRegister(reg, True, addr)'
+          assert s.count(lea) == 1
+          s = s.replace(lea, lea.replace('True)', 'True, read=False)'))
+          start = s.index('    def Op_fe_ff(')
+          end = s.index('    def Op_LOOP(', start)
+          part = s[start:end]
+          part = part.replace('self._state.SetFlagZ(v == 0 if word else (v & 0xff) == 0)', 'self._state.SetFlagZ((v & (0xffff if word else 0xff)) == 0)')
+          part = part.replace('            # CALL FAR\n            self.push(self._state._cs)', '            # Read the full target before a possibly aliased stack write.\n            target_cs = self.ReadMemWord(seg, (addr + 2) & 0xffff)\n            self.push(self._state._cs)')
+          part = part.replace('            self._state._ip = v\n            self._state._cs = self.ReadMemWord(seg, (addr + 2) & 0xffff)', '            self._state._ip = v\n            self._state._cs = target_cs')
+          part = part.replace('self._state._ip = self.ReadMemWord(seg, addr)', 'self._state._ip = v')
+          part = part.replace('                v -= 2\n                self.WriteMemWord(self._state._ss, v, v)', '                # 8088 PUSH SP stores the decremented SP.\n                self.push((v - 2) & 0xffff)')
+          part = part.replace('        if mod == 3 and reg == 4 and word:\n            put_cycles = 0\n        else:\n            put_cycles = self.UpdateRegisterMem(reg, mod, a_valid, seg, addr, word, v)', '        # CALL, JMP and PUSH only read their explicit operand. Writing it\n        # back can corrupt a return address when it aliases the stack.\n        put_cycles = 0\n        if function in (0, 1):\n            put_cycles = self.UpdateRegisterMem(reg, mod, a_valid, seg, addr, word, v)')
+          s = s[:start] + part + s[end:]
+          s = s.replace('        self._state._sp -= 2\n        self.WriteMemWord(self._state._ss, self._state._sp, self._state._sp)', '        self.push((self._state._sp - 2) & 0xffff)')
+          s = s.replace('        addr = self._state._ip + offset', '        addr = (self._state._ip + offset) & 0xffff')
+          s = s.replace('        # handle prefixes\n        while opcode', '        # handle prefixes\n        rep_prefix = None\n        while opcode')
+          start = s.index('            if opcode == 0xf2:\n', s.index('        rep_prefix = None'))
+          end = s.index('        if opcode == 0x00:', start)
+          s = s[:start] + '''            if opcode in (0xf2, 0xf3):
+                          rep_prefix = opcode
+                          self._state._rep_addr = instr_start
+                      else:
+                          self._state._segment_override_set = True  # TODO: move up
+                          cycle_count += 2
+          
+                      opcode = next_opcode
+          
+                  # The next byte may itself be a prefix. Use the final opcode so
+                  # segment-prefix order does not turn a conditional repeat into REP.
+                  if rep_prefix is not None:
+                      self._state._rep_mode = state8088.State8088.RepMode.REP
+                      if opcode in (0xa6, 0xa7, 0xae, 0xaf):
+                          self._state._rep_mode = (
+                              state8088.State8088.RepMode.REPE_Z if rep_prefix == 0xf3
+                              else state8088.State8088.RepMode.REPNZ)
+          
+          '''.replace('\n          ', '\n') + s[end:]
+          start = s.index('    def Op_INT(')
+          end = s.index('    def Op_CMP(', start)
+          part = s[start:end].replace('            self._state.SetFlagI(False)', '            self._state.SetFlagI(False)\n            self._state.SetFlagT(False)')
+          s = s[:start] + part + s[end:]
+          compile(s, str(p), 'exec')
+          p.write_text(s)
+          PY
+      - name: Run synthetic CPU and existing regressions
+        run: python -m unittest discover -s tests -v
+      - name: Commit source fix and remove one-shot preparation workflow
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add i8088.py
+          git rm .github/workflows/prepare-cpu-audit-fix.yml
+          git commit -m 'Fix 8088 operand effects, stack edges, REP decoding and INT flags'
+          git push origin HEAD:fix/cpu-debugger-regressions-20260921
