@@ -190,10 +190,10 @@ class VGATextTests(unittest.TestCase):
         self.assertTrue(self.video.BiosInterrupt(state))
         state.SetAL(0x85)
         self.assertTrue(self.video.BiosInterrupt(state))
-        self.assertEqual(self.video.ReadByte(0xa0000 + 9 * 320 + 7), 0)
+        self.assertEqual(self.video.ReadByte(0xa0000 + 9 * 320 + 7), 0x85)
         state.SetAH(0x0d)
         self.assertTrue(self.video.BiosInterrupt(state))
-        self.assertEqual(state.GetAL(), 0)
+        self.assertEqual(state.GetAL(), 0x85)
 
         state.SetAX(0x0012)
         self.assertTrue(self.video.BiosInterrupt(state))

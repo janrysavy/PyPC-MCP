@@ -204,13 +204,13 @@ class VGA(cga.CGA):
         return False
 
     def BiosWritePixel(self, x, y, color):
-        xor = bool(color & 0x80)
-        color &= 0x0f if self._graphics_mode == 0x12 else 0x7f
+        # INT 10h/0Ch uses bit 7 as XOR only in the 16-color mode.
+        # In mode 13h it is part of the full 8-bit palette index.
+        xor = self._graphics_mode == 0x12 and bool(color & 0x80)
+        color &= 0x0f if self._graphics_mode == 0x12 else 0xff
         if self._graphics_mode == 0x13:
             if 0 <= x < 320 and 0 <= y < 200:
                 address = 0xa0000 + y * 320 + x
-                if xor:
-                    color ^= self.ReadByte(address)
                 self.WriteByte(address, color)
                 return True
         elif self._graphics_mode == 0x12:
