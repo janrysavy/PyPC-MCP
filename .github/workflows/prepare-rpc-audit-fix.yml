@@ -1,0 +1,62 @@
+name: Prepare RPC audit fix
+on:
+  push:
+    branches: [fix/rpc-stop-resume-20260921]
+    paths: [.github/workflows/prepare-rpc-audit-fix.yml]
+permissions:
+  contents: write
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Apply guarded main-only transformations
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          p = Path('main.py')
+          b = p.read_bytes()
+          assert hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest() == '06215a4c92f1d7ddd1c419ba4711abf4768d9947'
+          s = b.decode()
+          s = s.replace('    def rpc_last_stop(kind, **details):\n', '    def rpc_last_stop(kind, **details):\n        # A breakpoint or deadline completes a pending step too.\n        control[\'step\'] = False\n')
+          helper = [
+              '    def rpc_resume_skip_id():',
+              '        # Execution and INT breakpoints stop before execution; watchpoints',
+              "        # stop after it. Never suppress the next instruction's memory access.",
+              "        stop = control['last_stop']",
+              "        if stop and stop.get('kind') == 'breakpoint' and 'access' not in stop:",
+              "            return stop.get('breakpoint_id')",
+              '        return None', '', '',
+          ]
+          anchor = '    def rpc_start_operation(kind):\n'
+          s = s.replace(anchor, '\n'.join(helper) + anchor)
+          old = "            if (control['last_stop'] and\n                    control['last_stop'].get('kind') == 'breakpoint'):\n                control['skip_breakpoint_id'] = control['last_stop'].get('breakpoint_id')"
+          assert s.count(old) == 2
+          s = s.replace(old, "            control['skip_breakpoint_id'] = rpc_resume_skip_id()")
+          old = "            control['skip_breakpoint_id'] = None\n            control['last_stop'] = None"
+          assert s.count(old) == 1
+          s = s.replace(old, "            control['skip_breakpoint_id'] = rpc_resume_skip_id()\n            control['last_stop'] = None")
+          old = "            control['skip_breakpoint_id'] = None\n            if breakpoint is not None:"
+          assert s.count(old) == 1
+          s = s.replace(old, "            # Keep the resume exemption through Tick's interrupt hook.\n            if breakpoint is not None:")
+          old = '        opcode = bytes(b.ReadByte((physical + i) & 0xfffff)[0] for i in range(8))'
+          assert s.count(old) == 1
+          s = s.replace(old, "        segment_base = registers['segments']['cs'] << 4\n        opcode = bytes(b.ReadByte(\n            (segment_base + ((registers['ip'] + i) & 0xffff)) & 0xfffff)[0]\n            for i in range(8))")
+          compile(s, str(p), 'exec')
+          p.write_text(s)
+          PY
+      - name: Run RPC, real socket and existing regression tests
+        run: python -m unittest discover -s tests -v
+      - name: Commit source fix and remove one-shot preparation workflow
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add main.py
+          git rm .github/workflows/prepare-rpc-audit-fix.yml
+          git commit -m 'Fix debugger resume exemptions, stop reasons and trace IP wrap'
+          git push origin HEAD:fix/rpc-stop-resume-20260921
