@@ -52,14 +52,23 @@ class i8259(device.Device):
         mappings[0x0020] = self
         mappings[0x0021] = self
 
-    def GetPendingInterrupt(self) -> int:
-        if self._irr == 0 or self._int_in_service != -1:
-            return 255
+    def _highest_in_service(self) -> int:
+        # Fixed priority: IR0 is highest, IR7 lowest.
+        for irq in range(8):
+            if self._isr & (1 << irq):
+                return irq
+        return -1
 
-        for i in range(8):
-            mask = 1 << i
-            if (self._irr & mask) == mask and (self._isr & mask) == 0 and (self._imr & mask) == 0:
-                return i
+    def GetPendingInterrupt(self) -> int:
+        for irq in range(8):
+            mask = 1 << irq
+            # An ISR bit blocks its own level and every lower priority level,
+            # not higher priority requests (fully nested mode).
+            if self._isr & mask:
+                break
+            if self._irr & mask and not (self._imr & mask):
+                return irq
+        return 255
 
     def SetTraceHook(self, hook):
         self._trace_hook = hook
@@ -101,15 +110,12 @@ class i8259(device.Device):
     def SetIRQBeingServiced(self, interrupt_nr: int):
         self._trace_event(
             'irq_dispatch', interrupt_nr, self._int_offset + interrupt_nr)
-        if self._auto_eoi == False:
-            self._int_in_service = interrupt_nr
-            mask = 1 << interrupt_nr
-            self._isr |= mask
-        else:
-            mask = ~(1 << interrupt_nr)
-            self._clear_requests(1 << interrupt_nr)
-            self._isr &= mask
-            self._int_in_service = -1
+        # INTA consumes the request. A new edge during service is a distinct
+        # pending request and must survive the eventual EOI.
+        self._clear_requests(1 << interrupt_nr)
+        if not self._auto_eoi:
+            self._isr |= 1 << interrupt_nr
+        self._int_in_service = self._highest_in_service()
 
     @override
     def IO_Read(self, addr: int) -> int:
@@ -152,23 +158,12 @@ class i8259(device.Device):
                     self._irq_request_level = value & 7
                     self._ocw2 = value
 
-                    # EOI
-                    if ((value >> 5) & 1) == 1:  # EOI set (in OCW2)?
-                        if (value & 0x60) == 0x60:  # ack a certain level
-                            i = value & 7
-
-                            mask = ~(1 << i)
-                            self._clear_requests(1 << i)
-                            self._isr &= mask
-                            if i == self._int_in_service:
-                                self._int_in_service = -1
-
-                        else:
-                            if self._int_in_service != -1:
-                                mask = ~(1 << self._int_in_service)
-                                self._clear_requests(1 << self._int_in_service)
-                                self._isr &= mask
-                                self._int_in_service = -1
+                    # EOI clears an in-service bit, never a pending request.
+                    if value & 0x20:
+                        irq = (value & 7) if value & 0x40 else self._highest_in_service()
+                        if irq != -1:
+                            self._isr &= ~(1 << irq)
+                        self._int_in_service = self._highest_in_service()
 
         elif addr == 0x0021:
             if self._in_init:
