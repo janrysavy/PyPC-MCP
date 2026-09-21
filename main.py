@@ -373,6 +373,7 @@ try:
                 'cpu': '8088', 'memory_bytes': 1024 * 1024,
                 'address_spaces': ['physical', 'linear', 'segmented'],
                 'limits': {'max_memory_bytes': 65536, 'max_keyboard_events': 32,
+                           'max_trace_events': 65536,
                            'retained_video_snapshots': 8},
                 'methods': [
                     'agent.capabilities', 'emulator.info', 'state.get_registers',
