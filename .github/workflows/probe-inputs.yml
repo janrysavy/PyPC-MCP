@@ -1,0 +1,21 @@
+name: Diagnostic probe inputs
+on:
+  push:
+    branches: [diagnostics/probe-inputs-20260921]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Archive tracked files only
+        run: git archive --format=zip HEAD -o probe-inputs.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emulator-probe-inputs
+          path: probe-inputs.zip
+          retention-days: 1
+          if-no-files-found: error
