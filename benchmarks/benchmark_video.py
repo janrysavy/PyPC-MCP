@@ -3,8 +3,9 @@
 The benchmark deliberately separates three costs:
 
 * converting the renderer's native BGRX buffer for VNC;
-* rendering unchanged VGA text and graphics frames;
-* sending a native VNC frame through the server's frame path.
+* rendering VGA text and graphics frames;
+* sending unchanged and small-change VNC updates through the server's frame
+  path.
 
 Run from the repository root with Python 3.12+:
 
@@ -149,6 +150,33 @@ def main():
                  for _ in range(args.frames)], args.repeats)
     results['vnc_incremental_unchanged']['bytes_per_sample'] = \
         incremental_session.stream.bytes_sent // args.repeats
+
+    changed_video = make_video(3)
+    changed_server = VNCServer.__new__(VNCServer)
+    changed_server._display = changed_video
+    changed_server._compatible = False
+    changed_server._compatible_width = 640
+    changed_server._compatible_height = 400
+    changed_server._frame_cache = None
+    changed_server._frame_cache_version = None
+    changed_session = VNCServer.VNCSession()
+    changed_session.stream = Sink()
+    changed_session.incremental = True
+    changed_server.VNCSendFrame(changed_session)
+    changed_session.stream.bytes_sent = 0
+    change_index = [0]
+
+    def send_small_change():
+        cell = change_index[0] % 80
+        changed_video.WriteByte(0xb8000 + cell * 2,
+                                (ord('A') + change_index[0]) & 0xff)
+        changed_server.VNCSendFrame(changed_session)
+        change_index[0] += 1
+
+    results['vnc_incremental_small_change'] = timed(
+        send_small_change, args.repeats * args.frames)
+    results['vnc_incremental_small_change']['bytes_per_update'] = \
+        changed_session.stream.bytes_sent // (args.repeats * args.frames)
 
     video = make_video(3)
     frame = video.GetFrame()

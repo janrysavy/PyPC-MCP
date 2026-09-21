@@ -85,9 +85,10 @@ python benchmarks/benchmark_video.py --frames 20 --repeats 5 > video.json
 
 It measures native-buffer and RGB565 conversion, VGA text/mode 12h/mode 13h,
 CGA text/graphics rendering, cached unchanged frames, and the incremental VNC
-empty-update path. The renderer benchmark calls `GetFrame()` repeatedly, while
-the cached VNC case represents repeated framebuffer requests with no visible
-display-version change. Timings are host-dependent; the useful comparison is
-between two runs on the same machine. Native buffers should avoid a list-to-
-bytes allocation, and unchanged incremental requests should transfer only the
-four-byte VNC update header.
+empty-update and changed-rectangle paths. The renderer benchmark calls
+`GetFrame()` repeatedly, while the VNC cases represent repeated framebuffer
+requests with no visible change and one changing text cell. Timings are
+host-dependent; the useful comparison is between two runs on the same
+machine. Native buffers should avoid a list-to-bytes allocation, unchanged
+incremental requests should transfer only the four-byte VNC update header, and
+small changes should transfer a bounded rectangle rather than the full frame.
