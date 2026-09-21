@@ -36,6 +36,10 @@ class VGATextTests(unittest.TestCase):
         self.video.IO_Write(0x3c0, 0x00)
         self.assertEqual(self.video.DecodeTextAttribute(0x8f), (15, 8, False))
         self.video.IO_Read(0x3da)
+        self.video.IO_Write(0x3c0, 0x10)
+        self.video.IO_Write(0x3c0, 0x08)
+        self.assertEqual(self.video.DecodeTextAttribute(0x8f), (15, 0, True))
+        self.video.IO_Read(0x3da)
         self.video.IO_Write(0x3c0, 0x1f)
         self.assertEqual(self.video.IO_Read(0x3c1), 0xff)
 
@@ -83,6 +87,19 @@ class VGATextTests(unittest.TestCase):
         self.video.IO_Write(0x3d4, 13)
         self.video.IO_Write(0x3d5, 0x00)
         self.assertEqual(self.video._display_address, 0x2000)
+
+    def test_text_page_flip_reads_and_renders_second_bank(self):
+        page_address = 80 * 25 * 2
+        self.video.WriteByte(0xb8000 + page_address, ord('B'))
+        self.video.WriteByte(0xb8000 + page_address + 1, 0x1f)
+        self.video.IO_Write(0x3d4, 12)
+        self.video.IO_Write(0x3d5, (page_address // 2) >> 8)
+        self.video.IO_Write(0x3d4, 13)
+        self.video.IO_Write(0x3d5, (page_address // 2) & 0xff)
+        self.assertEqual(self.video._display_address, page_address)
+        self.assertEqual(self.video.ReadTextByte(self.video._display_address), ord('B'))
+        _, _, pixels = self.video.GetFrame()
+        self.assertEqual(len(pixels), 640 * 400 * 4)
 
 
 if __name__ == '__main__':
