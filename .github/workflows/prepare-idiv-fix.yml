@@ -1,0 +1,82 @@
+name: Prepare verified IDIV fix
+on:
+  push:
+    branches: [fix/8088-idiv-signed-results]
+    paths: [.github/workflows/prepare-idiv-fix.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/8088-idiv-signed-results
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Apply reviewed replacement to the pinned original
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib
+          p = Path('i8088.py')
+          assert hashlib.sha256(p.read_bytes()).hexdigest() == 'fd37b89cd1c52f4a7cb407a4040f0c7c32dd521afeb19da5525548c0d45bdf43'
+          source = p.read_text()
+          start = source.index('            # IDIV\n')
+          end = source.index('\n        return cycle_count + 4', start)
+          replacement = '''            # IDIV truncates toward zero; Python // instead rounds down.
+                      # The dividend is signed AX (byte form) or signed DX:AX (word).
+                      bits = 16 if word else 8
+                      mask = (1 << bits) - 1
+                      if word:
+                          dividend = (self._state.GetDX() << 16) | self._state.GetAX()
+                          if dividend & 0x80000000:
+                              dividend -= 0x100000000
+                          divisor = self.ToSigned16(r1)
+                      else:
+                          dividend = self.ToSigned16(self._state.GetAX())
+                          divisor = self.ToSigned8(r1)
+
+                      quotient = 0
+                      if divisor:
+                          quotient = abs(dividend) // abs(divisor)
+                          if (dividend < 0) != (divisor < 0):
+                              quotient = -quotient
+
+                      # The 8086/8088 also traps on -128/-32768 quotients (unlike
+                      # later x86 CPUs). Keep the existing post-instruction INT 0 IP.
+                      if not divisor or abs(quotient) > (1 << (bits - 1)) - 1:
+                          self._state.SetZSPFlags(self._state.GetAH())
+                          self._state.SetFlagA(False)
+                          self.InvokeInterrupt(self._state._ip, 0x00, False)
+                      else:
+                          remainder = dividend - quotient * divisor
+                          # On 8088 a REP prefix negates only the quotient, not the
+                          # remainder; do not feed that extra negation back into it.
+                          if negate:
+                              quotient = -quotient
+                          if word:
+                              self._state.SetAX(quotient & mask)
+                              self._state.SetDX(remainder & mask)
+                          else:
+                              self._state.SetAL(quotient & mask)
+                              self._state.SetAH(remainder & mask)
+          '''
+          # Remove the extra indentation needed by this YAML block from all
+          # lines except the first; leave the Python source indentation intact.
+          lines = replacement.splitlines(True)
+          replacement = lines[0] + ''.join(line[10:] if line.startswith('          ') else line for line in lines[1:])
+          p.write_text(source[:start] + replacement + source[end:])
+          PY
+          python -m unittest discover -s tests -v
+      - name: Keep only the source fix and regression tests in the final diff
+        run: |
+          rm .github/workflows/prepare-idiv-fix.yml
+          git config user.name 'PyPC audit automation'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add i8088.py .github/workflows/prepare-idiv-fix.yml
+          git diff --cached --check
+          git commit -m 'fix(cpu): use signed truncating IDIV with 8088 quotient limits'
+          git push origin HEAD:fix/8088-idiv-signed-results
