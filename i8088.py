@@ -219,6 +219,8 @@ class i8088:
 
     def ReadMemByte(self, segment: int, offset: int) -> int:
         a = ((segment << 4) + offset) & self._MemMask
+        if a < self._b._direct_ram_end:
+            return self._b._m._m[a]
         rc = self._b.ReadByte(a)
         self._state._clock += rc[1]
         return rc[0]
@@ -228,6 +230,9 @@ class i8088:
 
     def WriteMemByte(self, segment: int, offset: int, v: int):
         a = ((segment << 4) + offset) & self._MemMask
+        if a < self._b._direct_ram_end:
+            self._b._m._m[a] = v
+            return
         self._state._clock += self._b.WriteByte(a, v)
 
     def WriteMemWord(self, segment: int, offset: int, v: int):
@@ -238,7 +243,12 @@ class i8088:
         ip = self._state._ip
         self._state._ip += 1
         self._state._ip &= 0xffff
-        return self.ReadMemByte(self._state._cs, ip)
+        a = ((self._state._cs << 4) + ip) & self._MemMask
+        if a < self._b._direct_ram_end:
+            return self._b._m._m[a]
+        rc = self._b.ReadByte(a)
+        self._state._clock += rc[1]
+        return rc[0]
 
     def GetPcWord(self) -> int:
         v = self.GetPcByte()
@@ -687,7 +697,7 @@ class i8088:
         back_from_trace = False
 
         # check for interrupt
-        if self._state.GetFlagI() == True and self._state._inhibit_interrupts == False:
+        if (self._state._flags & (1 << 9)) != 0 and self._state._inhibit_interrupts == False:
             irq = self._io.GetPIC().GetPendingInterrupt()
             if irq != 255:
                 for device in self._devices:
@@ -704,7 +714,7 @@ class i8088:
         self._state._inhibit_interrupts = False
 
         # T-flag produces an interrupt after each instruction
-        if self._state.GetInHlt():
+        if self._state._in_hlt:
             cycle_count += 2
             self._state._clock += cycle_count  # time needs to progress for timers etc
             self._io.Tick(cycle_count, self._state._clock)
@@ -771,8 +781,9 @@ class i8088:
             self._state._crash_counter = 0
 
         # main instruction handling
-        if self._ops[opcode] != None:
-            cycle_count += self._ops[opcode](opcode)
+        op = self._ops[opcode]
+        if op != None:
+            cycle_count += op(opcode)
         # special cases
         elif opcode == 0x9d:
             before = self._state.GetFlagT()

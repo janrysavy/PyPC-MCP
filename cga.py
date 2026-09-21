@@ -34,6 +34,9 @@ class CGA(mda.MDA):
     def GetName(self) -> str:
         return "CGA"
 
+    def GetTextColumns(self):
+        return 40 if self._cga_mode == self.CGAMode.Text40 else 80
+
     @override
     def RegisterDevice(self, mappings: dict):
         mappings[0x3d0] = self
@@ -67,8 +70,8 @@ class CGA(mda.MDA):
     def IO_Read(self, port: int) -> int:
         rc = 0
 
-        if (port == 0x3d5 or port == 0x3d7) and _m6845_reg >= 0x0c:
-            rc = self._m6845.Read(_m6845_reg)
+        if (port == 0x3d5 or port == 0x3d7) and self._m6845_reg >= 0x0c:
+            rc = self._m6845.Read(self._m6845_reg)
         elif port == 0x3da:
             if self.IsInVSync():
                 rc = 9  # regen buffer | 8 in vertical retrace
@@ -248,7 +251,7 @@ class CGA(mda.MDA):
     def Tick(self, cycles: int, clock: int) -> bool:
         self._clock = clock
 
-        line = self.GetCurrentScanLine()
+        line = (clock // 304) % 262
 
         if self._color_configuration_changed:
             # 200: there's also a 160x100 mode for which this needs to be adjusted
@@ -269,4 +272,4 @@ class CGA(mda.MDA):
         else:
             self._pulse_vsync = False
 
-        return super().Tick(cycles, clock)
+        return False

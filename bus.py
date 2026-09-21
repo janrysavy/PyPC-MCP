@@ -48,11 +48,22 @@ class Bus:
         # last! because it is a full 1 MB
         self._AddEntries((self._m,))
 
+        # The normal PC memory map has RAM below the first mapped device. Keep
+        # that boundary so the hot CPU memory path can avoid scanning the
+        # device cache for ordinary RAM accesses.
+        self._direct_ram_end = self._size
+        for entry in self._cache:
+            if entry.device is not self._m:
+                self._direct_ram_end = min(self._direct_ram_end, entry.start_addr)
+
     def ClearMemory(self):
         self._m = memory.Memory(self._size)
         self.RecreateCache()
 
     def ReadByte(self, address: int) -> Tuple[int, int]:
+        if address < self._direct_ram_end:
+            return (self._m._m[address], 0)
+
         for entry in self._cache:
             if address >= entry.start_addr and address < entry.end_addr:
                 return (entry.device.ReadByte(address), entry.wait_states)
@@ -63,6 +74,10 @@ class Bus:
 
     def WriteByte(self, address: int, v: int) -> int:
         assert v >= 0 and v <= 255
+        if address < self._direct_ram_end:
+            self._m._m[address] = v
+            return 0
+
         for entry in self._cache:
             if address >= entry.start_addr and address < entry.end_addr:
                 entry.device.WriteByte(address, v)

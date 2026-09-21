@@ -11,6 +11,7 @@ class IO:
         self._pic = i8259.i8259()
         self._i8237 = i8237.i8237(b)
         self._tick_devices = []
+        self._tick_methods = []
 
         for device in devices:
             device.SetDma(self._i8237)
@@ -19,6 +20,7 @@ class IO:
 
             if device.Ticks():
                 self._tick_devices.append(device)
+                self._tick_methods.append(device.Tick)
 
         devices.append(self._i8237)
         devices.append(self._pic);
@@ -56,10 +58,14 @@ class IO:
         return 0xffff if b16 else 0xff
 
     def Tick(self, ticks: int, clock: int) -> bool:
-        rc = False
-        for device in self._tick_devices:
-            rc |= device.Tick(ticks, clock)
-        return rc
+        if len(self._tick_methods) == 3:
+            self._tick_methods[0](ticks, clock)
+            self._tick_methods[1](ticks, clock)
+            self._tick_methods[2](ticks, clock)
+        else:
+            for tick in self._tick_methods:
+                tick(ticks, clock)
+        return False
 
     def Out(self, addr: int, value: int, b16: bool) -> bool:
         if self._test_mode:

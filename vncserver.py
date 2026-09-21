@@ -20,7 +20,7 @@ class VNCServer:
         self._kb = kb  # Keyboard
         self._listen_port = port
         self._compatible = compatible
-        self._compatible_width = 720
+        self._compatible_width = 640
         self._compatible_height = 400
 
         self._key_map = dict()
@@ -126,6 +126,8 @@ class VNCServer:
         self._key_map[0xff53] = ( 0x4d, )  # cursor right
         self._key_map[0xff50] = ( 0x47, )  # home
         self._key_map[0xff57] = ( 0x4f, )  # end
+        self._key_map[0xff56] = ( 0xe0, 0x51 )  # page down
+        self._key_map[0xff55] = ( 0xe0, 0x49 )  # page up
 
 
         _thread = threading.Thread(target=self.VNCServerThread, args=(port, ))
@@ -199,10 +201,10 @@ class VNCServer:
 
     def VNCWaitForEvent(self, session):
         try:
-            poller = select.poll()
-            poller.register(session.stream, select.POLLIN)
-            events = poller.poll(1 / 15)  # 15 fps
-            if len(events) == 0:
+            # select.poll() is unavailable on Windows; select.select() works
+            # for the socket used by the VNC session on all supported hosts.
+            readable, _, _ = select.select([session.stream], [], [], 1 / 60)
+            if len(readable) == 0:
                 return True
 
             type_ = int.from_bytes(session.stream.recv(1))
@@ -251,16 +253,6 @@ class VNCServer:
 
         width = self._compatible_width if self._compatible else frame[0]
         height = self._compatible_height if self._compatible else frame[1]
-
-        if not self._compatible:
-            resize = [ 0 ] * 5
-            resize[0] = 15  # ResizeFrameBuffer
-            resize[1] = width >> 8  # width
-            resize[2] = width & 255
-            resize[3] = height >> 8  # height
-            resize[4] = height & 255
-            with session.stream_lock:
-                session.stream.send(bytes(resize))
 
         update = [ 0 ] * (4 + 12)
         update[0] = 0  # FrameBufferUpdate

@@ -6,11 +6,15 @@ class Keyboard(device.Device):
     def __init__(self):
         self._irq_nr = 1
         self._kb_reset_irq_delay = 4770  # cycles for 1ms @ 4.77 MHz
-        self._kb_key_irq = 4770000/50
+        # The XT keyboard raises IRQ1 as soon as a scan code is available.
+        # Keep only a small emulated hardware delay; 20 ms made menu input
+        # visibly sluggish and queued startup keys behind user input.
+        self._kb_key_irq = 4770  # approximately 1 ms at 4.77 MHz
         self._clock_low = False
         self._0x61_bits = 0
         self._last_scan_code = 0
         self._keyboard_buffer = queue.Queue()
+        self._pressed_scancodes = set()
         super().__init__()
 
     @override
@@ -18,9 +22,16 @@ class Keyboard(device.Device):
         return self._irq_nr
 
     def PushKeyboardScancode(self, scan_code: int):
+        if scan_code & 0x80:
+            self._pressed_scancodes.discard(scan_code & 0x7f)
+        else:
+            self._pressed_scancodes.add(scan_code)
         self._keyboard_buffer.put(scan_code)
 
         self.ScheduleInterrupt(self._kb_key_irq)
+
+    def GetPressedScancodes(self):
+        return sorted(self._pressed_scancodes)
 
     @override
     def GetName(self) -> str:

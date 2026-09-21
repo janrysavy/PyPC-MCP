@@ -187,27 +187,28 @@ class i8253(device.Device):
 
         n_to_subtract = self._clock // 4
 
-        for i in range(3):
-            if self._timers[i].is_running == False:
+        for i, timer in enumerate(self._timers):
+            if timer.is_running == False:
                 continue
 
-            self._timers[i].counter_cur -= n_to_subtract
+            timer.counter_cur -= n_to_subtract
 
-            divider = 0x10000 if self._timers[i].counter_ini == 0 else self._timers[i].counter_ini
-            n_interrupts = -self._timers[i].counter_cur // divider
+            counter_ini = timer.counter_ini
+            divider = 0x10000 if counter_ini == 0 else counter_ini
+            n_interrupts = -timer.counter_cur // divider
 
             if n_interrupts > 0:
                 # timer 1 is RAM refresh counter
                 if i == 1:
                     self._i8237.TickChannel0(n_interrupts)
 
-                if self._timers[i].mode != 1:
-                    self._timers[i].counter_cur = self._timers[i].counter_ini - (-self._timers[i].counter_cur % divider)
+                if timer.mode != 1:
+                    timer.counter_cur = counter_ini - (-timer.counter_cur % divider)
                 else:
-                    self._timers[i].counter_cur &= 0xffff
+                    timer.counter_cur &= 0xffff
 
                 if i == 0:
-                    self._timers[i].is_pending = True
+                    timer.is_pending = True
                     interrupt = True
 
         self._clock -= n_to_subtract * 4
