@@ -3,6 +3,8 @@ import socket
 import threading
 import time
 
+from vncpixel import NATIVE_FORMAT, PixelFormat
+
 
 class VNCServer:
     class VNCServerThreadParameters:
@@ -15,6 +17,7 @@ class VNCServer:
             self.stream_lock = threading.Lock()
             self.stream = -1
             self.frame_requested = False
+            self.pixel_format = NATIVE_FORMAT
 
     def __init__(self, display, kb, port, compatible):
         self._thread = None
@@ -188,20 +191,7 @@ class VNCServer:
         reply[1] = width & 255
         reply[2] = height >> 8
         reply[3] = height & 255
-        reply[4] = 32  # bits per pixel
-        reply[5] = 32  # depth
-        reply[6] = 1  # big endian
-        reply[7] = 1  # True color
-        reply[8] = 0  # red max
-        reply[9] = 255  # red max
-        reply[10] = 0  # green max
-        reply[11] = 255  # green max
-        reply[12] = 0  # blue max
-        reply[13] = 255  # blue max
-        reply[14] = 16  # red shift
-        reply[15] = 8  # green shift
-        reply[16] = 0  # blue shift
-        reply[17] = reply[18] = reply[19] = 0  # padding
+        reply[4:20] = NATIVE_FORMAT.to_bytes()
         name = 'PyPC'
         name_bytes = name.encode('ascii')
         reply[20] = (len(name_bytes) >> 24) & 255
@@ -222,7 +212,9 @@ class VNCServer:
             type_ = self.RecvExact(session.stream, 1)[0]
 
             if type_ == 0:  # SetPixelFormat
-                self.RecvExact(session.stream, 3 + 16)
+                self.RecvExact(session.stream, 3)  # padding
+                session.pixel_format = PixelFormat.from_bytes(
+                    self.RecvExact(session.stream, 16))
             elif type_ == 2:  # SetEncodings
                 temp = self.RecvExact(session.stream, 3)
 
@@ -294,11 +286,11 @@ class VNCServer:
                 buffer[out_offset:out_offset + use_width * 4] = frame[2][in_offset:in_offset + use_width * 4]
             with session.stream_lock:
                 session.stream.sendall(bytes(update))
-                session.stream.sendall(bytes(buffer))
+                session.stream.sendall(session.pixel_format.encode_bgra(buffer))
         else:
             with session.stream_lock:
                 session.stream.sendall(bytes(update))
-                session.stream.sendall(bytes(frame[2]))
+                session.stream.sendall(session.pixel_format.encode_bgra(frame[2]))
 
     def VNCClientThread(self, session):
         try:
