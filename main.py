@@ -209,6 +209,8 @@ try:
         }
 
     def rpc_last_stop(kind, **details):
+        # A breakpoint or deadline completes a pending step too.
+        control['step'] = False
         stop = {'kind': kind, **details, 'registers': rpc_registers()}
         control['last_stop'] = stop
         operation = control['active_operation']
@@ -217,6 +219,14 @@ try:
             operation['stop_reason'] = stop
             control['active_operation'] = None
         return stop
+
+    def rpc_resume_skip_id():
+        # Execution and INT breakpoints stop before execution; watchpoints
+        # stop after it. Never suppress the next instruction's memory access.
+        stop = control['last_stop']
+        if stop and stop.get('kind') == 'breakpoint' and 'access' not in stop:
+            return stop.get('breakpoint_id')
+        return None
 
     def rpc_start_operation(kind):
         if control['active_operation'] is not None:
@@ -266,7 +276,10 @@ try:
     def rpc_trace_event():
         registers = rpc_registers()
         physical = ((registers['segments']['cs'] << 4) + registers['ip']) & 0xfffff
-        opcode = bytes(b.ReadByte((physical + i) & 0xfffff)[0] for i in range(8))
+        segment_base = registers['segments']['cs'] << 4
+        opcode = bytes(b.ReadByte(
+            (segment_base + ((registers['ip'] + i) & 0xffff)) & 0xfffff)[0]
+            for i in range(8))
         return {
             'kind': 'hlt' if registers['in_hlt'] else 'instruction',
             'address': {
@@ -722,9 +735,7 @@ try:
             operation = rpc_start_operation('continue')
             control['paused'] = False
             control['step'] = False
-            if (control['last_stop'] and
-                    control['last_stop'].get('kind') == 'breakpoint'):
-                control['skip_breakpoint_id'] = control['last_stop'].get('breakpoint_id')
+            control['skip_breakpoint_id'] = rpc_resume_skip_id()
             control['last_stop'] = None
             return {
                 'operation_id': operation['operation_id'], 'state': 'running',
@@ -765,7 +776,7 @@ try:
             rpc_refresh_instruction_hooks()
             control['paused'] = False
             control['step'] = False
-            control['skip_breakpoint_id'] = None
+            control['skip_breakpoint_id'] = rpc_resume_skip_id()
             control['last_stop'] = None
             return {
                 'operation_id': operation['operation_id'],
@@ -784,9 +795,7 @@ try:
             rpc_clear_run_until()
             control['step'] = True
             control['paused'] = False
-            if (control['last_stop'] and
-                    control['last_stop'].get('kind') == 'breakpoint'):
-                control['skip_breakpoint_id'] = control['last_stop'].get('breakpoint_id')
+            control['skip_breakpoint_id'] = rpc_resume_skip_id()
             control['last_stop'] = None
             return {'stepping': True, **rpc_registers()}
 
@@ -807,7 +816,7 @@ try:
             breakpoint = breakpoints.check(
                 state.GetCS(), state.GetIP(), rpc_flat_registers(),
                 control['skip_breakpoint_id'])
-            control['skip_breakpoint_id'] = None
+            # Keep the resume exemption through Tick's interrupt hook.
             if breakpoint is not None:
                 control['paused'] = True
                 control['step'] = False
