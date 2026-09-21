@@ -14,6 +14,7 @@ class VNCServer:
         def __init__(self):
             self.stream_lock = threading.Lock()
             self.stream = -1
+            self.frame_requested = False
 
     def __init__(self, display, kb, port, compatible):
         self._thread = None
@@ -226,7 +227,9 @@ class VNCServer:
                         session.audio_enabled = True
             elif type_ == 3:  # FramebufferUpdateRequest
                 buffer = session.stream.recv(9)
-                # TODO
+                if len(buffer) != 9:
+                    return False
+                session.frame_requested = True
             elif type_ == 4:  # KeyEvent
                 buffer = session.stream.recv(7)
                 vnc_scan_code = (buffer[3] << 24) | (buffer[4] << 16) | (buffer[5] << 8) | buffer[6]
@@ -294,6 +297,7 @@ class VNCServer:
             self.VNCSendVersion(session.stream)
             self.VNCSecurityHandshake(session.stream)
             self.VNCClientServerInit(session.stream)
+            session.frame_requested = True
 
             version = 0
             first = True
@@ -302,11 +306,12 @@ class VNCServer:
             while True:
                 new_version = self._display.GetClock()
                 now = time.monotonic()
-                if ((new_version != version or first) and
+                if ((session.frame_requested or first) and
                         (first or now - last_frame_time >= frame_interval)):
                     version = new_version
                     self.VNCSendFrame(session, first)
                     first = False
+                    session.frame_requested = False
                     last_frame_time = now
 
                 if self.VNCWaitForEvent(session) == False:
