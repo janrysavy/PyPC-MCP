@@ -356,7 +356,7 @@ try:
         if instruction_address is None:
             return None
         return breakpoints.check_interrupt(
-            number, ah, al, rpc_flat_registers(), control['skip_breakpoint_id'])
+            number, ah, al, rpc_flat_registers, control['skip_breakpoint_id'])
 
     register_access = {
         'ax': (state.GetAX, state.SetAX), 'bx': (state.GetBX, state.SetBX),
@@ -814,7 +814,7 @@ try:
             continue
         if control['breakpoints_active']:
             breakpoint = breakpoints.check(
-                state.GetCS(), state.GetIP(), rpc_flat_registers(),
+                state.GetCS(), state.GetIP(), rpc_flat_registers,
                 control['skip_breakpoint_id'])
             # Keep the resume exemption through Tick's interrupt hook.
             if breakpoint is not None:
