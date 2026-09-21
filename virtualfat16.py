@@ -32,6 +32,7 @@ class HostDirectoryFAT16:
         self.identity = f'host:{self.directory}'
         self._image = bytearray(self.total_sectors * self.sector_size)
         self._host_paths = {}
+        self._synced_files = {}
         self._build()
 
     @staticmethod
@@ -227,6 +228,7 @@ class HostDirectoryFAT16:
 
         write_tree(root)
         self._remember_host_paths(root)
+        self._remember_synced_files(root)
 
     def _write_directory(self, entry, directory_data, parent_cluster):
         entries = entry['entries']
@@ -248,6 +250,14 @@ class HostDirectoryFAT16:
             self._host_paths[child['relative']] = child['host']
             if child['kind'] == 'dir':
                 self._remember_host_paths(child)
+
+    def _remember_synced_files(self, entry):
+        for child in entry['entries']:
+            if child['kind'] == 'dir':
+                self._remember_synced_files(child)
+            else:
+                self._synced_files[child['relative']] = (
+                    len(child['data']), tuple(child['clusters']))
 
     def _fat_value(self, cluster):
         self._validate_cluster(cluster)
@@ -288,6 +298,21 @@ class HostDirectoryFAT16:
         if len(data) < size:
             raise ValueError('guest FAT chain is invalid')
         return bytes(data[:size])
+
+    def _cluster_chain(self, start_cluster):
+        if start_cluster < 2:
+            return ()
+        clusters = []
+        seen = set()
+        cluster = start_cluster
+        while cluster >= 2 and cluster not in seen:
+            self._validate_cluster(cluster)
+            seen.add(cluster)
+            clusters.append(cluster)
+            cluster = self._fat_value(cluster)
+            if cluster >= 0xfff8:
+                break
+        return tuple(clusters)
 
     def _safe_host_path(self, relative):
         if any(part in (b'.          ', b'..         ') for part in relative):
@@ -340,7 +365,7 @@ class HostDirectoryFAT16:
                 entries.append(('file', child_relative, size, start_cluster))
         return entries
 
-    def _sync_directory(self, data, relative, visited):
+    def _sync_directory(self, data, relative, visited, dirty_clusters):
         for entry in self._directory_entries(data, relative, visited):
             if entry[0] == 'dir':
                 _, child_relative, child_data = entry
@@ -350,9 +375,15 @@ class HostDirectoryFAT16:
                     raise ValueError(f'guest write targets a host symlink: {host_path}')
                 host_path.mkdir(parents=True, exist_ok=True)
                 self._host_paths[child_relative] = host_path
-                self._sync_directory(child_data, child_relative, visited)
+                self._sync_directory(child_data, child_relative, visited,
+                                     dirty_clusters)
             else:
                 _, child_relative, size, start_cluster = entry
+                chain = self._cluster_chain(start_cluster)
+                signature = (size, chain)
+                if (self._synced_files.get(child_relative) == signature and
+                        (size == 0 or dirty_clusters.isdisjoint(chain))):
+                    continue
                 host_path = self._host_paths.get(child_relative) or self._safe_host_path(child_relative)
                 host_path = self._validate_host_path(host_path)
                 if host_path.is_symlink():
@@ -360,14 +391,15 @@ class HostDirectoryFAT16:
                 host_path.parent.mkdir(parents=True, exist_ok=True)
                 host_path.write_bytes(self._read_chain(start_cluster, size))
                 self._host_paths[child_relative] = host_path
+                self._synced_files[child_relative] = signature
 
-    def SyncToHost(self):
+    def SyncToHost(self, dirty_clusters=frozenset()):
         root_start = (self.partition_start + self.reserved_sectors +
                       self.fat_count * self.fat_sectors)
         root_size = self.root_entries * 32
         root_data = bytes(self._image[root_start * self.sector_size:
                                       root_start * self.sector_size + root_size])
-        self._sync_directory(root_data, (), set())
+        self._sync_directory(root_data, (), set(), dirty_clusters)
 
     def Read(self, offset, length):
         if offset < 0 or length < 0 or offset + length > len(self._image):
@@ -377,8 +409,18 @@ class HostDirectoryFAT16:
     def Write(self, offset, data):
         if offset < 0 or offset + len(data) > len(self._image):
             raise ValueError('virtual disk write is outside the disk')
+        data_start = (self.partition_start + self.reserved_sectors +
+                      self.fat_count * self.fat_sectors +
+                      self.root_entries * 32 // self.sector_size) * self.sector_size
+        cluster_size = self.sectors_per_cluster * self.sector_size
+        dirty_clusters = set()
+        first_data_byte = max(offset, data_start)
+        if first_data_byte < offset + len(data):
+            first_cluster = 2 + (first_data_byte - data_start) // cluster_size
+            last_cluster = 2 + (offset + len(data) - 1 - data_start) // cluster_size
+            dirty_clusters.update(range(first_cluster, last_cluster + 1))
         self._image[offset:offset + len(data)] = data
         try:
-            self.SyncToHost()
+            self.SyncToHost(dirty_clusters)
         except (OSError, ValueError) as error:
             print(f'HostDirectoryFAT16: ignored invalid guest filesystem write: {error}')
