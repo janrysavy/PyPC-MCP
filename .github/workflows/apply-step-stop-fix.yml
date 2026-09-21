@@ -112,6 +112,7 @@ jobs:
               unittest.main()
           PY
 
+          python -m pip install --disable-pip-version-check pytest
           rm .github/workflows/apply-step-stop-fix.yml
           python -m pytest -q
           git config user.name github-actions[bot]
