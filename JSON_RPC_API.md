@@ -58,6 +58,9 @@ Numbers may be JSON integers or strings accepted by Python `int(value, 0)`, such
 | `input.keyboard` | Queue XT keyboard make/break scan codes. |
 | `keyboard.scancode` | Single-event alias of `input.keyboard`. |
 | `input.state` | Read currently pressed XT scan codes. |
+| `breakpoints.create` | Create an execution breakpoint with optional register condition and hit filter. |
+| `breakpoints.list` | List active execution breakpoints and hit counts. |
+| `breakpoints.delete` | Delete an execution breakpoint. |
 | `execution.pause` | Stop at the next instruction boundary. |
 | `execution.continue` | Resume execution. |
 | `execution.go` | Alias of `execution.continue`. |
@@ -405,6 +408,49 @@ Single-event convenience alias. It accepts the same event fields directly:
 
 The result is the same as `input.keyboard` with `accepted:1`.
 
+## `breakpoints.create`
+
+Creates an execution breakpoint checked before each 8088 instruction. PyPC currently
+supports `kind:"execution"` only; memory-access and interrupt breakpoints are not
+implemented. Addresses may be `physical`, `linear`, or `segmented`:
+
+```json
+{
+  "kind":"execution",
+  "address":{"space":"segmented","segment":"0x1000","offset":"0x0020"},
+  "once":true,
+  "condition":{"register":"ax","operator":"eq","value":"0x004c"},
+  "hit_filter":{"skip":0,"every":1}
+}
+```
+
+Supported condition registers are the 8088 general, segment, `ip`, and `flags`
+registers. Supported operators are `eq`, `ne`, `lt`, `le`, `gt`, and `ge`.
+`hit_count` counts condition matches; `skip` suppresses the first matches and
+`every` selects subsequent matches. A one-shot breakpoint is removed when it
+stops execution. The result is the normalized breakpoint descriptor, including
+its `breakpoint_id`.
+
+## `breakpoints.list`
+
+No parameters. Returns `{ "breakpoints": [...] }`, including normalized addresses,
+conditions, hit filters, and current hit counts.
+
+## `breakpoints.delete`
+
+Parameters:
+
+```json
+{"breakpoint_id":"bp-1"}
+```
+
+Returns `{ "breakpoint_id":"bp-1", "deleted":true }`.
+
+When a breakpoint stops execution, `session.status.last_stop` contains
+`kind:"breakpoint"`, the breakpoint id, normalized address, hit count, and the
+coherent register snapshot. Continuing or stepping skips that same breakpoint
+for one instruction so a persistent breakpoint does not immediately retrigger.
+
 ## `execution.pause`
 
 No parameters. Requests that execution stop at the next instruction boundary.
@@ -481,7 +527,8 @@ API, classified for this PyPC transport:
 | `video.snapshot.read` | Implemented (`vram`, `text`) | Bounded retained-component reads. |
 | `memory.read` | Implemented | Bus-backed 1 MiB reads. |
 | `memory.write` | Implemented | Paused, SHA-guarded bus writes. |
-| `breakpoints.create/list/delete` | Deferred | Existing CPU hooks are not yet RPC-safe/normalized. |
+| `breakpoints.create` | Implemented (execution subset) | Pre-instruction execution breakpoints with register conditions and hit filters. |
+| `breakpoints.list/delete` | Implemented (execution subset) | Lists or removes normalized execution breakpoints. |
 | `debug.output.read` | Deferred | No bounded diagnostic-output ring. |
 | `debugger.execute_command` | Deferred | Deliberately no raw debugger command escape hatch. |
 | `trace.start/read/stop` | Deferred | No bounded CPU trace ring. |

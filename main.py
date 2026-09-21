@@ -6,6 +6,7 @@ import hashlib
 import bus
 import cga
 import debugserver
+import debugbreakpoints
 import i8088
 import i8253
 import i8255
@@ -107,7 +108,10 @@ try:
     control = {
         'paused': False, 'step': False, 'revision': 0,
         'snapshot_number': 0, 'snapshots': {},
+        'last_stop': None, 'skip_breakpoint_id': None,
+        'breakpoints_active': False,
     }
+    breakpoints = debugbreakpoints.BreakpointManager()
 
     def rpc_params(request):
         params = request.get('params', {})
@@ -157,6 +161,18 @@ try:
             'in_hlt': state.GetInHlt(),
             'state_revision': control['revision'],
         }
+
+    def rpc_flat_registers():
+        registers = rpc_registers()
+        return {
+            **registers['general'], **registers['segments'],
+            'ip': registers['ip'], 'flags': registers['flags'],
+        }
+
+    def rpc_last_stop(kind, **details):
+        stop = {'kind': kind, **details, 'registers': rpc_registers()}
+        control['last_stop'] = stop
+        return stop
 
     register_access = {
         'ax': (state.GetAX, state.SetAX), 'bx': (state.GetBX, state.SetBX),
@@ -222,6 +238,7 @@ try:
                     'video.snapshot.read', 'io.read', 'input.keyboard',
                     'keyboard.scancode', 'input.state', 'execution.pause',
                     'execution.continue', 'execution.go', 'execution.step',
+                    'breakpoints.create', 'breakpoints.list', 'breakpoints.delete',
                 ],
             }
 
@@ -236,7 +253,7 @@ try:
                 'clock': state.GetClock(),
                 'target': {'cpu': '8088', 'memory_bytes': 1024 * 1024,
                            'video': 'CGA'},
-                'last_stop': 'pause' if control['paused'] else None,
+                'last_stop': control['last_stop'],
             }
 
         if method in ('state.get_registers', 'state.get'):
@@ -402,14 +419,36 @@ try:
                 'joysticks': [], 'state_revision': control['revision'],
             }
 
+        if method == 'breakpoints.create':
+            result = breakpoints.create(params)
+            control['breakpoints_active'] = True
+            return result
+
+        if method == 'breakpoints.list':
+            return {'breakpoints': breakpoints.list()}
+
+        if method == 'breakpoints.delete':
+            breakpoint_id = params.get('breakpoint_id')
+            if not isinstance(breakpoint_id, str):
+                raise ValueError('breakpoint_id is required')
+            breakpoints.delete(breakpoint_id)
+            control['breakpoints_active'] = breakpoints.has_any()
+            return {'breakpoint_id': breakpoint_id, 'deleted': True}
+
         if method == 'execution.pause':
             control['paused'] = True
             control['step'] = False
+            control['skip_breakpoint_id'] = None
+            rpc_last_stop('pause')
             return {'paused': True, **rpc_registers()}
 
         if method in ('execution.continue', 'execution.go'):
             control['paused'] = False
             control['step'] = False
+            if (control['last_stop'] and
+                    control['last_stop'].get('kind') == 'breakpoint'):
+                control['skip_breakpoint_id'] = control['last_stop'].get('breakpoint_id')
+            control['last_stop'] = None
             return {'paused': False, **rpc_registers()}
 
         if method == 'execution.step':
@@ -420,6 +459,10 @@ try:
                 raise ValueError('execution.step requires a paused emulator')
             control['step'] = True
             control['paused'] = False
+            if (control['last_stop'] and
+                    control['last_stop'].get('kind') == 'breakpoint'):
+                control['skip_breakpoint_id'] = control['last_stop'].get('breakpoint_id')
+            control['last_stop'] = None
             return {'stepping': True, **rpc_registers()}
 
         raise LookupError(f'unknown method: {method}')
@@ -435,6 +478,18 @@ try:
         if control['paused']:
             time.sleep(0.001)
             continue
+        if control['breakpoints_active']:
+            breakpoint = breakpoints.check(
+                state.GetCS(), state.GetIP(), rpc_flat_registers(),
+                control['skip_breakpoint_id'])
+            control['skip_breakpoint_id'] = None
+            if breakpoint is not None:
+                control['paused'] = True
+                control['step'] = False
+                rpc_last_stop(
+                    'breakpoint', breakpoint_id=breakpoint['breakpoint_id'],
+                    address=breakpoint['address'], hit_count=breakpoint['hit_count'])
+                continue
         # print(f'{state.GetCS():04x}:{state.GetIP():04x} {GetRegisters(state)}')
         rc = p.Tick()
         if rc == -1:
@@ -443,6 +498,7 @@ try:
         if control['step']:
             control['step'] = False
             control['paused'] = True
+            rpc_last_stop('step')
         cur_cycles = state.GetClock()
         c_diff = cur_cycles - p_cycles
         if c_diff >= 4700000:

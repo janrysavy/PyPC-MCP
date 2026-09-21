@@ -729,7 +729,7 @@ class i8088:
 
         else:
             if instr_start in self._breakpoints:
-                self._stop_reason = f'Breakpoint reached at address {check_address:06x}'
+                self._stop_reason = f'Breakpoint reached at address {address:06x}'
                 return -1
 
         # handle prefixes
@@ -843,7 +843,7 @@ class i8088:
         self._breakpoints.add(a)
 
     def DelBreakpoint(self, a):
-        del self._breakpoints[a]
+        self._breakpoints.remove(a)
 
     def ClearBreakpoints(self):
         self._breakpoints = set()
