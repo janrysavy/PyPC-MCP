@@ -49,25 +49,27 @@ jobs:
           s = s.replace('        # handle prefixes\n        while opcode', '        # handle prefixes\n        rep_prefix = None\n        while opcode')
           start = s.index('            if opcode == 0xf2:\n', s.index('        rep_prefix = None'))
           end = s.index('        if opcode == 0x00:', start)
-          s = s[:start] + '''            if opcode in (0xf2, 0xf3):
-                          rep_prefix = opcode
-                          self._state._rep_addr = instr_start
-                      else:
-                          self._state._segment_override_set = True  # TODO: move up
-                          cycle_count += 2
-          
-                      opcode = next_opcode
-          
-                  # The next byte may itself be a prefix. Use the final opcode so
-                  # segment-prefix order does not turn a conditional repeat into REP.
-                  if rep_prefix is not None:
-                      self._state._rep_mode = state8088.State8088.RepMode.REP
-                      if opcode in (0xa6, 0xa7, 0xae, 0xaf):
-                          self._state._rep_mode = (
-                              state8088.State8088.RepMode.REPE_Z if rep_prefix == 0xf3
-                              else state8088.State8088.RepMode.REPNZ)
-          
-          '''.replace('\n          ', '\n') + s[end:]
+          replacement = [
+              '            if opcode in (0xf2, 0xf3):',
+              '                rep_prefix = opcode',
+              '                self._state._rep_addr = instr_start',
+              '            else:',
+              '                self._state._segment_override_set = True  # TODO: move up',
+              '                cycle_count += 2',
+              '',
+              '            opcode = next_opcode',
+              '',
+              '        # The next byte may itself be a prefix. Use the final opcode so',
+              '        # segment-prefix order does not turn a conditional repeat into REP.',
+              '        if rep_prefix is not None:',
+              '            self._state._rep_mode = state8088.State8088.RepMode.REP',
+              '            if opcode in (0xa6, 0xa7, 0xae, 0xaf):',
+              '                self._state._rep_mode = (',
+              '                    state8088.State8088.RepMode.REPE_Z if rep_prefix == 0xf3',
+              '                    else state8088.State8088.RepMode.REPNZ)',
+              '', '',
+          ]
+          s = s[:start] + '\n'.join(replacement) + s[end:]
           start = s.index('    def Op_INT(')
           end = s.index('    def Op_CMP(', start)
           part = s[start:end].replace('            self._state.SetFlagI(False)', '            self._state.SetFlagI(False)\n            self._state.SetFlagT(False)')
