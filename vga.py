@@ -33,6 +33,7 @@ class VGA(cga.CGA):
         self._attribute_flipflop = False
         self._misc_output = 0x67  # color display, VGA clock selection
         self._blink_phase = True
+        self._cursor_phase = True
         self._cga_mode = self.CGAMode.Text80
         self._graphics_mode = 3
         self._m6845.Write(1, 79)  # 80 displayed text columns
@@ -61,6 +62,29 @@ class VGA(cga.CGA):
             for row in range(16):
                 self._planes[2][target_offset + row] = source[
                     source_offset + min(row // 2, source_height - 1)]
+
+    def GetFontMemory(self):
+        return bytes(self._planes[2])
+
+    def GetCursorInfo(self):
+        start = self._m6845.Read(10) & 0x1f
+        end = self._m6845.Read(11) & 0x1f
+        address = (self._cursor_location << 1) & self.GetTextAddressMask()
+        columns = self.GetTextColumns()
+        position = (address - self._display_address) & self.GetTextAddressMask()
+        visible = (self._cursor_location >= 0 and
+                   not (self._m6845.Read(10) & 0x20) and
+                   self._cursor_phase and start <= end and end < 16)
+        return {
+            'address': address,
+            'start_scanline': start,
+            'end_scanline': end,
+            'enabled': self._cursor_location >= 0 and not (self._m6845.Read(10) & 0x20),
+            'visible': visible,
+            'blink_phase': self._cursor_phase,
+            'column': (position // 2) % columns,
+            'row': (position // (columns * 2)) % 25,
+        }
 
     def _font_offset(self, character, attributes):
         # Sequencer character-map select chooses one of two 8 KiB maps.  The
@@ -107,6 +131,12 @@ class VGA(cga.CGA):
 
     def _write_crtc(self, port: int, value: int) -> bool:
         handled = super().IO_Write(port, value)
+        if port in (0x3d5, 0x3d7, 0x3d1, 0x3d3) and self._m6845_reg in (12, 13):
+            # VGA CRTC start address is expressed in character words.  The
+            # text-memory and RPC interfaces use byte offsets.
+            word_address = ((self._m6845.Read(12) << 8) |
+                            self._m6845.Read(13))
+            self._display_address = (word_address << 1) & self.GetTextAddressMask()
         if port in (0x3d5, 0x3d7, 0x3d1, 0x3d3) and self._m6845_reg == 1:
             self._cga_mode = (self.CGAMode.Text40 if value <= 40
                               else self.CGAMode.Text80)
@@ -173,6 +203,7 @@ class VGA(cga.CGA):
         columns = self.GetTextColumns()
         pixel_width = 2 if columns == 40 else 1
         address_mask = self.GetTextAddressMask()
+        cursor = self.GetCursorInfo()
         for y in range(25):
             for x in range(columns):
                 offset = (self._display_address + (y * columns + x) * 2) & address_mask
@@ -195,6 +226,19 @@ class VGA(cga.CGA):
                             self._pixels[index + 1] = palette[1]
                             self._pixels[index + 2] = palette[2]
                             self._pixels[index + 3] = 255
+                if cursor['visible'] and offset == cursor['address']:
+                    start = cursor['start_scanline']
+                    end = cursor['end_scanline']
+                    for py in range(start, end + 1):
+                        pixel_offset = ((y * 16 + py) * 640 +
+                                        x * 8 * pixel_width) * 4
+                        for glyph_x in range(8 * pixel_width):
+                            index = pixel_offset + glyph_x * 4
+                            palette = self._palette[foreground]
+                            self._pixels[index + 0] = palette[0]
+                            self._pixels[index + 1] = palette[1]
+                            self._pixels[index + 2] = palette[2]
+                            self._pixels[index + 3] = 255
         return 640, 400, self._pixels
 
     @override
@@ -207,4 +251,5 @@ class VGA(cga.CGA):
     def Tick(self, cycles: int, clock: int) -> bool:
         result = super().Tick(cycles, clock)
         self._blink_phase = bool((clock // 200000) & 1)
+        self._cursor_phase = bool((clock // 100000) & 1)
         return result

@@ -5,7 +5,7 @@
 >
 > **Top methods:** `agent.capabilities`; `emulator.info`; `session.status`;
 > `execution.pause/continue/go/step`; register and memory access; keyboard input
-> and state; I/O reads; CGA text, attributes, and video snapshots. See the
+> and state; I/O reads; CGA/VGA text, attributes, fonts, and video snapshots. See the
 > [complete JSON-RPC API specification](JSON_RPC_API.md) for exact request,
 > response, state, safety, and framing semantics.
 >
@@ -36,6 +36,10 @@
 > D:
 > PROGRAM
 > ```
+>
+> For the text-only VGA adapter, add `--video vga` at startup. It supports the
+> 80×25 and 40×25 text modes, VGA attributes, cursor registers, page flips, and
+> plane-2 font access through the JSON-RPC API.
 
 PyPC is an IBM PC (8088) emulator written in Python.
 

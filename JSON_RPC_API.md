@@ -3,7 +3,8 @@
 This document is the complete contract for the AI/debug control channel built into
 PyPC. It follows the DOSBox-X agent convention of using JSON-RPC 2.0 method names
 and JSON-lines framing. It also records the portability audit against the
-DOSBox-X debugger-agent API.
+DOSBox-X debugger-agent API. PyPC supports CGA and text-only VGA adapters;
+the adapter is selected when the emulator starts.
 
 ## Transport
 
@@ -51,8 +52,8 @@ Numbers may be JSON integers or strings accepted by Python `int(value, 0)`, such
 | `state.set_registers` | Guarded register write while paused. |
 | `memory.read` | Read a bounded physical/linear/segmented memory block. |
 | `memory.write` | Guarded memory write while paused. |
-| `video.text` | Read the active CGA text screen directly from VRAM. |
-| `video.snapshot` | Capture immutable CGA VRAM/text bytes. |
+| `video.text` | Read the active CGA or VGA text screen directly from video memory. |
+| `video.snapshot` | Capture immutable text video-memory, font, and decoded-text bytes. |
 | `video.snapshot.read` | Read a bounded component from a retained video snapshot. |
 | `io.read` | Read one byte from an emulated I/O port. |
 | `io.write` | Write one byte to an emulated I/O port while paused. |
@@ -93,6 +94,7 @@ Result:
   "endpoint":"127.0.0.1:2301",
   "cpu":"8088",
   "memory_bytes":1048576,
+  "video_adapters":["CGA","VGA"],
   "address_spaces":["physical","linear","segmented"],
   "limits":{"max_memory_bytes":65536,"max_keyboard_events":32,
     "max_trace_events":65536,"retained_video_snapshots":8},
@@ -260,8 +262,9 @@ decode to `1..65536` bytes and the range must remain inside 1 MiB.
 
 ## `video.text`
 
-Reads a 25-row CGA text page directly from the CGA VRAM backing store, including
-the current CRTC display offset. With no parameters it reads the active page.
+Reads a 25-row text page directly from the active adapter's video-memory backing
+store, including the current CRTC display offset. With no parameters it reads
+the active page.
 Optional parameters select another bank/page without changing emulated hardware:
 
 ```json
@@ -274,16 +277,21 @@ or:
 {"display_address":"0x0FA0"}
 ```
 
-The page size is `columns * 25 * 2` bytes. PyPC’s CGA has 16 KiB of text/graphics
-RAM, so it exposes four 80-column pages or eight 40-column pages. A text-mode program can
-render into one page and flip the CRTC start address to another; `active_page`,
-`page`, and `is_active_page` make that flip observable. A page read never changes
-the CRTC or the display.
+The page size is `columns * 25 * 2` bytes. CGA has 16 KiB of text/graphics RAM,
+so it exposes four 80-column pages or eight 40-column pages. Text-only VGA has
+32 KiB of text RAM, so it exposes eight 80-column pages or sixteen 40-column
+pages. A text-mode program can render into one page and flip the CRTC start
+address to another; `active_page`, `page`, and `is_active_page` make that flip
+observable. A page read never changes the CRTC or the display.
+`display_address` is always a byte offset in the adapter's video memory; the
+VGA CRTC's native word-addressed start register is converted before it is
+reported here.
 
 Result:
 
 ```json
 {
+  "adapter":"CGA",
   "columns":40,
   "rows":25,
   "page_size_bytes":2000,
@@ -306,17 +314,20 @@ Result:
 The example abbreviates the array; `text` always contains exactly 25 strings. Each string is trimmed on the right; CP437
 characters are decoded to Unicode replacement-safe text. `cells` always contains
 25 rows with `columns` cells per row. Each cell reports the raw character byte and
-raw CGA attribute byte. The low four attribute bits are the foreground palette
-index; bits 4..6 are the background palette index; bit 7 is reported as `blink`.
+raw attribute byte. The low four attribute bits are the foreground palette index;
+bits 4..6 are the background palette index. On VGA with blink enabled, bit 7 is
+reported as `blink`; with VGA blink disabled, bit 7 is the fourth background bit.
 `columns` is `40` or `80`. In graphics modes the text and cell arrays are still
-the raw character interpretation of CGA memory and should not be treated as a
-graphical screenshot.
+the raw character interpretation of video memory and should not be treated as a
+graphical screenshot. Text-only VGA additionally returns a `cursor` object with
+the CRTC cursor address, shape, enable state, and current blink phase.
 
 ## `video.snapshot`
 
-Captures immutable CGA VRAM and decoded text bytes at one CPU-thread boundary.
+Captures immutable adapter video memory and decoded text bytes at one CPU-thread boundary.
 The snapshot retains raw VRAM, so character attributes and all render pages remain
-available even after the live screen changes. At most eight snapshots are retained;
+available even after the live screen changes. Text-only VGA snapshots additionally
+retain the 64 KiB VGA plane-2 font memory. At most eight snapshots are retained;
 older snapshots expire.
 
 No parameters. Result:
@@ -326,6 +337,7 @@ No parameters. Result:
   "snapshot_id":"snap-1",
   "state_revision":12345,
   "captured_ticks":123456789,
+  "adapter":"CGA",
   "video_mode":8,
   "columns":40,
   "rows":25,
@@ -336,6 +348,10 @@ No parameters. Result:
 }
 ```
 
+VGA results also include a `font` component and `cursor` metadata. The VGA font
+component is 65536 bytes and contains plane 2 as exposed through the text-mode
+font aperture.
+
 ## `video.snapshot.read`
 
 Reads one retained snapshot component. Parameters:
@@ -344,8 +360,8 @@ Reads one retained snapshot component. Parameters:
 {"snapshot_id":"snap-1","component":"vram","offset":0,"length":64}
 ```
 
-`component` is `vram` or `text`. Result includes both whole-component and chunk
-metadata:
+`component` is `vram` or `text`; VGA additionally supports `font`. Result includes
+both whole-component and chunk metadata:
 
 ```json
 {
@@ -690,8 +706,8 @@ API, classified for this PyPC transport:
 | `input.state` | Implemented (XT subset) | Raw pressed scan codes; no named-key/joystick layer. |
 | `dos.memory_map` | Deferred | No DOS loader/MCB metadata model. |
 | `checkpoints.create/list/restore/delete` | Deferred | No complete machine snapshot serializer. |
-| `video.snapshot` | Implemented (CGA subset) | Immutable raw VRAM/text snapshot; no VGA fonts/DAC/frame. |
-| `video.snapshot.read` | Implemented (`vram`, `text`) | Bounded retained-component reads. |
+| `video.snapshot` | Implemented (CGA and text-only VGA) | Immutable raw VRAM/text snapshot; VGA also includes plane-2 fonts, but not VGA graphics/DAC frames. |
+| `video.snapshot.read` | Implemented (`vram`, `text`, VGA `font`) | Bounded retained-component reads. |
 | `memory.read` | Implemented | Bus-backed 1 MiB reads. |
 | `memory.write` | Implemented | Paused, SHA-guarded bus writes. |
 | `io.write` | Implemented | Paused byte write through the emulated I/O bus. |

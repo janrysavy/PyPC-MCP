@@ -1,6 +1,7 @@
 #! /usr/bin/python3
 
 from typing import List
+import argparse
 import base64
 import hashlib
 import bus
@@ -18,7 +19,16 @@ import rom
 import telnet
 import time
 import vncserver
+import vga
 import xtide
+
+
+def ParseArguments():
+    parser = argparse.ArgumentParser(description='Run the PyPC 8088 emulator')
+    parser.add_argument(
+        '--video', choices=('cga', 'vga'), default='cga',
+        help='select the emulated text/video adapter (default: cga)')
+    return parser.parse_args()
 
 def GetRegisters(state) -> str:
     return f'{state.GetFlagsAsString()} AX:{state.GetAX():04x} BX:{state.GetBX():04x} CX:{state.GetCX():04x} DX:{state.GetDX():04x} SP:{state.GetSP():04x} BP:{state.GetBP():04x} SI:{state.GetSI():04x} DI:{state.GetDI():04x} flags:{state.GetFlags():04x} ES:{state.GetES():04x} CS:{state.GetCS():04x} SS:{state.GetSS():04x} DS:{state.GetDS():04x} IP:{state.GetIP():04x}'
@@ -34,16 +44,17 @@ def ParseNumber(value):
 
 def ReadTextScreen(scr, display_address=None):
     columns = scr.GetTextColumns()
+    address_mask = scr.GetTextAddressMask()
     rows = []
     if display_address is None:
-        display_address = scr._display_address & 0x3fff
+        display_address = scr._display_address & address_mask
     else:
-        display_address &= 0x3fff
+        display_address &= address_mask
     for y in range(25):
         row = bytearray()
         for x in range(columns):
-            offset = (display_address + (y * columns + x) * 2) & 0x3fff
-            character = scr._ram[offset]
+            offset = (display_address + (y * columns + x) * 2) & address_mask
+            character = scr.ReadTextByte(offset)
             row.append(character if character >= 32 else 32)
         rows.append(row.decode('cp437', errors='replace').rstrip())
     return rows
@@ -51,24 +62,26 @@ def ReadTextScreen(scr, display_address=None):
 
 def ReadTextCells(scr, display_address=None):
     columns = scr.GetTextColumns()
+    address_mask = scr.GetTextAddressMask()
     cells = []
     if display_address is None:
-        display_address = scr._display_address & 0x3fff
+        display_address = scr._display_address & address_mask
     else:
-        display_address &= 0x3fff
+        display_address &= address_mask
     for y in range(25):
         row = []
         for x in range(columns):
-            offset = (display_address + (y * columns + x) * 2) & 0x3fff
-            character = scr._ram[offset]
-            attribute = scr._ram[(offset + 1) & 0x3fff]
+            offset = (display_address + (y * columns + x) * 2) & address_mask
+            character = scr.ReadTextByte(offset)
+            attribute = scr.ReadTextByte((offset + 1) & address_mask)
+            foreground, background, blink = scr.DecodeTextAttribute(attribute)
             row.append({
                 'code': character,
                 'char': bytes((character,)).decode('cp437', errors='replace'),
                 'attribute': attribute,
-                'foreground': attribute & 0x0f,
-                'background': (attribute >> 4) & 0x07,
-                'blink': bool(attribute & 0x80),
+                'foreground': foreground,
+                'background': background,
+                'blink': blink,
             })
         cells.append(row)
     return cells
@@ -84,14 +97,20 @@ if status == 1:
     print("GIL is disabled")
 
 try:
+    arguments = ParseArguments()
     devices: List[object] = []
     devices.append(i8253.i8253())
     kb = keyboard.Keyboard()
     devices.append(kb)
     devices.append(i8255.i8255(kb))
     #scr = mda.MDA()
-    scr = cga.CGA(False)
+    scr = vga.VGA(False) if arguments.video == 'vga' else cga.CGA(False)
     devices.append(scr)
+    disks = ['harddisk.img']
+    if arguments.host_dir:
+        host_disk = virtualfat16.HostDirectoryFAT16(arguments.host_dir)
+        disks.append(host_disk)
+        print(f'Exposing {host_disk.directory} as guest drive D: (FAT16, write-through)')
     devices.append(xtide.XTIDE(('harddisk.img',)));
 
     roms = []
@@ -342,25 +361,32 @@ try:
     def rpc_video_snapshot():
         vram = bytes(scr._ram)
         text = '\n'.join(ReadTextScreen(scr)).encode('utf-8')
+        snapshot_data = {'vram': vram, 'text': text}
+        if hasattr(scr, 'GetFontMemory'):
+            snapshot_data['font'] = scr.GetFontMemory()
         control['snapshot_number'] += 1
         snapshot_id = f'snap-{control["snapshot_number"]}'
-        control['snapshots'][snapshot_id] = {
-            'vram': vram, 'text': text,
-            'state_revision': control['revision'],
-        }
+        control['snapshots'][snapshot_id] = snapshot_data
         while len(control['snapshots']) > 8:
             del control['snapshots'][next(iter(control['snapshots']))]
-        return {
+        result = {
             'snapshot_id': snapshot_id,
             'state_revision': control['revision'],
             'captured_ticks': state.GetClock(),
+            'adapter': scr.GetName(),
             'video_mode': scr._graphics_mode,
             'columns': scr.GetTextColumns(), 'rows': 25,
-            'display_address': scr._display_address & 0x3fff,
-            'active_page': (scr._display_address & 0x3fff) // (scr.GetTextColumns() * 25 * 2),
+            'display_address': scr._display_address & scr.GetTextAddressMask(),
+            'active_page': ((scr._display_address & scr.GetTextAddressMask()) //
+                            (scr.GetTextColumns() * 25 * 2)),
             'text': rpc_snapshot_component(text),
             'vram': rpc_snapshot_component(vram),
         }
+        if 'font' in snapshot_data:
+            result['font'] = rpc_snapshot_component(snapshot_data['font'])
+        if hasattr(scr, 'GetCursorInfo'):
+            result['cursor'] = scr.GetCursorInfo()
+        return result
 
     def handle_debug(request):
         method = request['method']
@@ -371,6 +397,7 @@ try:
                 'protocol': 'JSON-RPC 2.0 over localhost JSON-lines',
                 'endpoint': '127.0.0.1:2301',
                 'cpu': '8088', 'memory_bytes': 1024 * 1024,
+                'video_adapters': ['CGA', 'VGA'],
                 'address_spaces': ['physical', 'linear', 'segmented'],
                 'limits': {'max_memory_bytes': 65536, 'max_keyboard_events': 32,
                            'max_trace_events': 65536,
@@ -400,7 +427,7 @@ try:
                 'state_revision': control['revision'],
                 'clock': state.GetClock(),
                 'target': {'cpu': '8088', 'memory_bytes': 1024 * 1024,
-                           'video': 'CGA'},
+                           'video': scr.GetName()},
                 'last_stop': control['last_stop'],
             }
 
@@ -488,8 +515,8 @@ try:
             component = params.get('component')
             if snapshot_id not in control['snapshots']:
                 raise ValueError('snapshot_id was not found or has expired')
-            if component not in ('vram', 'text'):
-                raise ValueError('component must be vram or text')
+            if component not in control['snapshots'][snapshot_id]:
+                raise ValueError('component is not available in this video snapshot')
             offset = rpc_number(params.get('offset', 0), 'offset')
             length = rpc_number(params.get('length'), 'length')
             data = control['snapshots'][snapshot_id][component]
@@ -509,7 +536,7 @@ try:
             columns = scr.GetTextColumns()
             page_size = columns * 25 * 2
             page_count = len(scr._ram) // page_size
-            active_address = scr._display_address & 0x3fff
+            active_address = scr._display_address & scr.GetTextAddressMask()
             if 'page' in params:
                 page = rpc_number(params['page'], 'page')
                 if page < 0 or page >= page_count:
@@ -518,11 +545,13 @@ try:
             elif 'display_address' in params:
                 display_address = rpc_number(params['display_address'], 'display_address')
                 if display_address < 0 or display_address >= len(scr._ram):
-                    raise ValueError('display_address must be within CGA VRAM')
+                    raise ValueError('display_address must be within video memory')
+                display_address &= scr.GetTextAddressMask()
             else:
                 display_address = active_address
-            display_address &= 0x3fff
-            return {
+                display_address &= scr.GetTextAddressMask()
+            result = {
+                'adapter': scr.GetName(),
                 'columns': columns, 'rows': 25,
                 'page_size_bytes': page_size, 'page_count': page_count,
                 'page': display_address // page_size,
@@ -535,6 +564,9 @@ try:
                 'cells': ReadTextCells(scr, display_address),
                 'state_revision': control['revision'],
             }
+            if hasattr(scr, 'GetCursorInfo'):
+                result['cursor'] = scr.GetCursorInfo()
+            return result
 
         if method == 'io.read':
             port = rpc_number(params.get('port'), 'port')
