@@ -145,13 +145,23 @@ class VNCServer:
             for m in self._key_map[c]:
                 self._kb.PushKeyboardScancode(m if press else (m | 0x80))
 
+    @staticmethod
+    def RecvExact(stream, length):
+        buffer = bytearray()
+        while len(buffer) < length:
+            chunk = stream.recv(length - len(buffer))
+            if not chunk:
+                raise ConnectionError('VNC client closed the connection')
+            buffer.extend(chunk)
+        return bytes(buffer)
+
     def VNCSendVersion(self, stream):
         msg = "RFB 003.008\n".encode('ascii')
-        stream.send(msg)
+        stream.sendall(msg)
 
         # wait for reply, ignoring what it is
         while True:
-            buffer = int.from_bytes(stream.recv(1))
+            buffer = self.RecvExact(stream, 1)[0]
             print(f'{buffer:c}', end='')
             if buffer == ord('\n'):
                 break
@@ -159,16 +169,16 @@ class VNCServer:
 
     def VNCSecurityHandshake(self, stream):
         list_ = (1, 1)  # 1, None
-        stream.send(bytes(list_))
+        stream.sendall(bytes(list_))
 
         # receive reply with choice, ignoring choice
-        buffer = stream.recv(1)
+        self.RecvExact(stream, 1)
 
         reply = [ 0 ] * 4
-        stream.send(bytes(reply))
+        stream.sendall(bytes(reply))
 
     def VNCClientServerInit(self, stream):
-        shared = stream.recv(1)
+        self.RecvExact(stream, 1)
 
         example = self._display.GetFrame()
         width = self._compatible_width if self._compatible else example[0]
@@ -198,8 +208,8 @@ class VNCServer:
         reply[21] = (len(name_bytes) >> 16) & 255
         reply[22] = (len(name_bytes) >>  8) & 255
         reply[23] = len(name_bytes) & 255
-        stream.send(bytes(reply))
-        stream.send(name_bytes)
+        stream.sendall(bytes(reply))
+        stream.sendall(name_bytes)
 
     def VNCWaitForEvent(self, session):
         try:
@@ -209,38 +219,36 @@ class VNCServer:
             if len(readable) == 0:
                 return True
 
-            type_ = int.from_bytes(session.stream.recv(1))
+            type_ = self.RecvExact(session.stream, 1)[0]
 
             if type_ == 0:  # SetPixelFormat
-                temp = session.stream.recv(3 + 16)
+                self.RecvExact(session.stream, 3 + 16)
             elif type_ == 2:  # SetEncodings
-                temp = session.stream.recv(3)
+                temp = self.RecvExact(session.stream, 3)
 
                 no_encodings = (temp[1] << 8) | temp[2]
                 print(f'VNC: retrieve {no_encodings} encodings')
                 for i in range(no_encodings):
-                    encoding = session.stream.recv(4)
+                    encoding = self.RecvExact(session.stream, 4)
                     e = int.from_bytes(encoding, 'big', signed=True)
                     print(f'VNC: retrieved encoding {i}: {e}')
                     if e == -259:
                         print("VNC client supports audio")
                         session.audio_enabled = True
             elif type_ == 3:  # FramebufferUpdateRequest
-                buffer = session.stream.recv(9)
-                if len(buffer) != 9:
-                    return False
+                self.RecvExact(session.stream, 9)
                 session.frame_requested = True
             elif type_ == 4:  # KeyEvent
-                buffer = session.stream.recv(7)
+                buffer = self.RecvExact(session.stream, 7)
                 vnc_scan_code = (buffer[3] << 24) | (buffer[4] << 16) | (buffer[5] << 8) | buffer[6]
                 print(f'Key {buffer[0]} {vnc_scan_code:04x}')
                 self.PushChar(vnc_scan_code, buffer[0] != 0)
             elif type_ == 5:  # PointerEvent
-                buffer = session.stream.recv(5)
+                self.RecvExact(session.stream, 5)
             elif type_ == 6:  # ClientCutText
-                buffer = session.stream.recv(7)
+                buffer = self.RecvExact(session.stream, 7)
                 n_to_read = (buffer[3] << 24) | (buffer[4] << 16) | (buffer[5] << 8) | buffer[6]
-                temp = session.stream.recv(n_to_read)
+                self.RecvExact(session.stream, n_to_read)
             else:
                 print(f'VNC: Client message {type_} not understood')
                 return False
@@ -252,7 +260,7 @@ class VNCServer:
 
         return False
 
-    def VNCSendFrame(self, session, first):
+    def VNCSendFrame(self, session):
         frame = self._display.GetFrame()
 
         width = self._compatible_width if self._compatible else frame[0]
@@ -285,12 +293,12 @@ class VNCServer:
                 out_offset = y * width * 4
                 buffer[out_offset:out_offset + use_width * 4] = frame[2][in_offset:in_offset + use_width * 4]
             with session.stream_lock:
-                session.stream.send(bytes(update))
-                session.stream.send(bytes(buffer))
+                session.stream.sendall(bytes(update))
+                session.stream.sendall(bytes(buffer))
         else:
             with session.stream_lock:
-                session.stream.send(bytes(update))
-                session.stream.send(bytes(frame[2]))
+                session.stream.sendall(bytes(update))
+                session.stream.sendall(bytes(frame[2]))
 
     def VNCClientThread(self, session):
         try:
@@ -299,18 +307,13 @@ class VNCServer:
             self.VNCClientServerInit(session.stream)
             session.frame_requested = True
 
-            version = 0
-            first = True
             last_frame_time = 0.0
             frame_interval = 1.0 / 20.0
             while True:
-                new_version = self._display.GetClock()
                 now = time.monotonic()
-                if ((session.frame_requested or first) and
-                        (first or now - last_frame_time >= frame_interval)):
-                    version = new_version
-                    self.VNCSendFrame(session, first)
-                    first = False
+                if (session.frame_requested and
+                        now - last_frame_time >= frame_interval):
+                    self.VNCSendFrame(session)
                     session.frame_requested = False
                     last_frame_time = now
 
