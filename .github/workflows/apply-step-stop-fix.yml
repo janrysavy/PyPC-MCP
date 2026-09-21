@@ -1,0 +1,117 @@
+name: Apply audited step-stop fix
+
+on:
+  push:
+    branches: [fix/json-rpc-step-stop-priority]
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/json-rpc-step-stop-priority
+      - name: Apply fix and regression test
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          path = Path('main.py')
+          source = path.read_text(encoding='utf-8')
+          before = """    def rpc_require_paused():
+              if not control['paused']:
+                  raise ValueError('target must be paused for this operation')
+
+          """
+          after = """    def rpc_require_paused():
+              if not control['paused']:
+                  raise ValueError('target must be paused for this operation')
+
+              def rpc_finish_step(memory_stop, interrupt_stop):
+                  \"\"\"Consume a pending single-step without hiding a stronger stop reason.\"\"\"
+                  if not control['step']:
+                      return False
+                  control['step'] = False
+                  return memory_stop is None and interrupt_stop is None
+
+          """.replace('              def rpc_finish_step', '    def rpc_finish_step').replace('                  ', '        ')
+          if before not in source:
+              raise SystemExit('rpc_require_paused insertion point not found')
+          source = source.replace(before, after, 1)
+
+          old = """        if control['step']:
+              control['step'] = False
+              control['paused'] = True
+              rpc_last_stop('step')
+          """
+          new = """        if rpc_finish_step(memory_stop, interrupt_stop):
+              control['paused'] = True
+              rpc_last_stop('step')
+          """
+          if old not in source:
+              raise SystemExit('single-step completion block not found')
+          path.write_text(source.replace(old, new, 1), encoding='utf-8')
+          PY
+
+          cat > tests/test_step_stop_priority.py <<'PY'
+          """Single-step must not overwrite memory or interrupt breakpoint stops."""
+          import ast
+          from pathlib import Path
+          import unittest
+
+
+          def finish_step_function(control):
+              source = Path(__file__).resolve().parents[1] / 'main.py'
+              tree = ast.parse(source.read_text(encoding='utf-8'), filename=str(source))
+              functions = [node for node in ast.walk(tree)
+                           if isinstance(node, ast.FunctionDef)
+                           and node.name == 'rpc_finish_step']
+              if len(functions) != 1:
+                  raise AssertionError('rpc_finish_step was not found exactly once')
+              namespace = {'control': control}
+              exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), 'exec'),
+                   namespace)
+              return namespace['rpc_finish_step']
+
+
+          class StepStopPriorityTests(unittest.TestCase):
+              def test_plain_step_reports_step_and_consumes_request(self):
+                  control = {'step': True}
+                  finish = finish_step_function(control)
+                  self.assertTrue(finish(None, None))
+                  self.assertFalse(control['step'])
+
+              def test_memory_breakpoint_wins_over_step(self):
+                  control = {'step': True}
+                  finish = finish_step_function(control)
+                  self.assertFalse(finish({'breakpoint_id': 'bp-1'}, None))
+                  self.assertFalse(control['step'])
+
+              def test_interrupt_breakpoint_wins_over_step(self):
+                  control = {'step': True}
+                  finish = finish_step_function(control)
+                  self.assertFalse(finish(None, {'breakpoint_id': 'bp-2'}))
+                  self.assertFalse(control['step'])
+
+              def test_no_pending_step_is_unchanged(self):
+                  control = {'step': False}
+                  finish = finish_step_function(control)
+                  self.assertFalse(finish(None, None))
+                  self.assertFalse(control['step'])
+
+
+          if __name__ == '__main__':
+              unittest.main()
+          PY
+
+          rm .github/workflows/apply-step-stop-fix.yml
+          python -m pytest -q
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add main.py tests/test_step_stop_priority.py .github/workflows/apply-step-stop-fix.yml
+          git commit -m 'fix: preserve watchpoint stop during single-step'
+          git push origin HEAD:fix/json-rpc-step-stop-priority
