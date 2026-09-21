@@ -14,6 +14,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: fix/json-rpc-step-stop-priority
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Apply fix and regression test
         shell: bash
         run: |
@@ -22,36 +27,32 @@ jobs:
 
           path = Path('main.py')
           source = path.read_text(encoding='utf-8')
-          before = """    def rpc_require_paused():
-              if not control['paused']:
-                  raise ValueError('target must be paused for this operation')
 
-          """
-          after = """    def rpc_require_paused():
-              if not control['paused']:
-                  raise ValueError('target must be paused for this operation')
+          marker = "    def rpc_hash(data):\n"
+          helper = (
+              "    def rpc_finish_step(memory_stop, interrupt_stop):\n"
+              "        \"\"\"Consume a pending single-step without hiding a stronger stop reason.\"\"\"\n"
+              "        if not control['step']:\n"
+              "            return False\n"
+              "        control['step'] = False\n"
+              "        return memory_stop is None and interrupt_stop is None\n"
+              "\n"
+          )
+          if marker not in source:
+              raise SystemExit('rpc_hash insertion point not found')
+          source = source.replace(marker, helper + marker, 1)
 
-              def rpc_finish_step(memory_stop, interrupt_stop):
-                  \"\"\"Consume a pending single-step without hiding a stronger stop reason.\"\"\"
-                  if not control['step']:
-                      return False
-                  control['step'] = False
-                  return memory_stop is None and interrupt_stop is None
-
-          """.replace('              def rpc_finish_step', '    def rpc_finish_step').replace('                  ', '        ')
-          if before not in source:
-              raise SystemExit('rpc_require_paused insertion point not found')
-          source = source.replace(before, after, 1)
-
-          old = """        if control['step']:
-              control['step'] = False
-              control['paused'] = True
-              rpc_last_stop('step')
-          """
-          new = """        if rpc_finish_step(memory_stop, interrupt_stop):
-              control['paused'] = True
-              rpc_last_stop('step')
-          """
+          old = (
+              "        if control['step']:\n"
+              "            control['step'] = False\n"
+              "            control['paused'] = True\n"
+              "            rpc_last_stop('step')\n"
+          )
+          new = (
+              "        if rpc_finish_step(memory_stop, interrupt_stop):\n"
+              "            control['paused'] = True\n"
+              "            rpc_last_stop('step')\n"
+          )
           if old not in source:
               raise SystemExit('single-step completion block not found')
           path.write_text(source.replace(old, new, 1), encoding='utf-8')
@@ -67,14 +68,17 @@ jobs:
           def finish_step_function(control):
               source = Path(__file__).resolve().parents[1] / 'main.py'
               tree = ast.parse(source.read_text(encoding='utf-8'), filename=str(source))
-              functions = [node for node in ast.walk(tree)
-                           if isinstance(node, ast.FunctionDef)
-                           and node.name == 'rpc_finish_step']
+              functions = [
+                  node for node in ast.walk(tree)
+                  if isinstance(node, ast.FunctionDef)
+                  and node.name == 'rpc_finish_step'
+              ]
               if len(functions) != 1:
                   raise AssertionError('rpc_finish_step was not found exactly once')
               namespace = {'control': control}
-              exec(compile(ast.Module(body=functions, type_ignores=[]), str(source), 'exec'),
-                   namespace)
+              module = ast.Module(body=functions, type_ignores=[])
+              ast.fix_missing_locations(module)
+              exec(compile(module, str(source), 'exec'), namespace)
               return namespace['rpc_finish_step']
 
 
@@ -112,6 +116,6 @@ jobs:
           python -m pytest -q
           git config user.name github-actions[bot]
           git config user.email 41898282+github-actions[bot]@users.noreply.github.com
-          git add main.py tests/test_step_stop_priority.py .github/workflows/apply-step-stop-fix.yml
+          git add -A
           git commit -m 'fix: preserve watchpoint stop during single-step'
           git push origin HEAD:fix/json-rpc-step-stop-priority
