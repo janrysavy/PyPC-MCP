@@ -1,6 +1,7 @@
 """Execution breakpoint matching for the PyPC debugger channel."""
 
 from dataclasses import dataclass
+from typing import Callable
 
 
 _REGISTERS = {
@@ -223,7 +224,7 @@ class BreakpointManager:
     def contains(self, breakpoint_id: str) -> bool:
         return breakpoint_id in self._breakpoints
 
-    def check(self, segment: int, offset: int, registers: dict, skip_id: str | None = None):
+    def check(self, segment: int, offset: int, registers: dict | Callable[[], dict], skip_id: str | None = None):
         physical = ((segment << 4) + offset) & 0xfffff
         for breakpoint in list(self._breakpoints.values()):
             if breakpoint.kind != 'execution':
@@ -232,8 +233,13 @@ class BreakpointManager:
                 continue
             if not breakpoint.matches_address(segment, offset, physical):
                 continue
-            if not breakpoint.matches_condition(registers):
-                continue
+            # A register snapshot is only needed for a conditional match.
+            # Cache it within this check, not across instruction boundaries.
+            if breakpoint.condition is not None:
+                if callable(registers):
+                    registers = registers()
+                if not breakpoint.matches_condition(registers):
+                    continue
             if not breakpoint.selected_hit():
                 continue
             result = breakpoint.to_dict()
@@ -267,7 +273,7 @@ class BreakpointManager:
         return self.check_memory_access('memory_write', physical, access, skip_id)
 
     def check_interrupt(self, number: int, ah: int, al: int,
-                        registers: dict, skip_id: str | None = None):
+                        registers: dict | Callable[[], dict], skip_id: str | None = None):
         for breakpoint in list(self._breakpoints.values()):
             if breakpoint.kind != 'interrupt':
                 continue
@@ -280,8 +286,13 @@ class BreakpointManager:
                 continue
             if 'al' in event and event['al'] != al:
                 continue
-            if not breakpoint.matches_condition(registers):
-                continue
+            # A register snapshot is only needed for a conditional match.
+            # Cache it within this check, not across instruction boundaries.
+            if breakpoint.condition is not None:
+                if callable(registers):
+                    registers = registers()
+                if not breakpoint.matches_condition(registers):
+                    continue
             if not breakpoint.selected_hit():
                 continue
             result = breakpoint.to_dict()
