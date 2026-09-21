@@ -167,6 +167,9 @@ class i8237(device.Device):
         count -= 1
         if count == -1:
             self._reached_tc[channel] = True
+            # TC status is read-to-clear; the mask independently stops DMA.
+            if not (self._channel_mode[channel] & 0x10):
+                self._channel_mask[channel] = True
         self._channel_word_count[channel].SetValue(count & 0xffff)
 
         return rc
@@ -196,6 +199,9 @@ class i8237(device.Device):
         count -= 1
         if count == -1:
             self._reached_tc[channel] = True
+            # TC status is read-to-clear; the mask independently stops DMA.
+            if not (self._channel_mode[channel] & 0x10):
+                self._channel_mask[channel] = True
 
         self._channel_word_count[channel].SetValue(count & 0xffff)
 
