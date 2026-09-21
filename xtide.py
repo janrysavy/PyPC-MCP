@@ -92,7 +92,7 @@ class XTIDE(device.Device):
         cylinder = self._registers[4] | (self._registers[5] << 8)
         drive_head = self._registers[6]
         drive = 1 if (drive_head & 16) != 0 else 0
-        if drive == 1 and len(_disk_filenames) == 1:
+        if drive == 1 and len(self._disk_filenames) == 1:
             self._error_register |= 4  # ABRT
             self.SetERR()
             return
@@ -138,7 +138,7 @@ class XTIDE(device.Device):
         cylinder = self._registers[4] | (self._registers[5] << 8)
         drive_head = self._registers[6]
         drive = 1 if (drive_head & 16) != 0 else 0
-        if drive == 1 and len(_disk_filenames) == 1:
+        if drive == 1 and len(self._disk_filenames) == 1:
             self._error_register |= 4  # ABRT
             self.SetERR()
             return
@@ -232,10 +232,12 @@ class XTIDE(device.Device):
         return rc
 
     def StoreSectorBuffer(self):
-        fh = open(self._disk_filenames[self._target_drive], 'a+b')
-        fh.seek(self._target_lba * 512)
-        fh.write(self._sector_buffer)
-        fh.close()
+        # Append mode ignores seek positions for writes, which used to grow the
+        # image and leave the requested LBA untouched. Disk images already exist,
+        # so update them in place instead.
+        with open(self._disk_filenames[self._target_drive], 'r+b') as fh:
+            fh.seek(self._target_lba * 512)
+            fh.write(self._sector_buffer)
 
     @override
     def IO_Write(self, port: int, value: int) -> bool:
