@@ -734,7 +734,7 @@ class i8088:
 
         # handle prefixes
         rep_prefix = None
-        while opcode in (0x26, 0x2e, 0x36, 0x3e, 0xf2, 0xf3):
+        while opcode in (0x26, 0x2e, 0x36, 0x3e, 0xf0, 0xf2, 0xf3):
             if opcode == 0x26:
                 self._state._segment_override = self._state._es
             elif opcode == 0x2e:
@@ -757,6 +757,10 @@ class i8088:
             if opcode in (0xf2, 0xf3):
                 rep_prefix = opcode
                 self._state._rep_addr = instr_start
+            elif opcode == 0xf0:
+                # LOCK belongs to the following instruction; it must not
+                # introduce a debugger step or interrupt/trap boundary.
+                cycle_count += 2
             else:
                 self._state._segment_override_set = True  # TODO: move up
                 cycle_count += 2
