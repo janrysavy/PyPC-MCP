@@ -1,0 +1,48 @@
+{
+  "python": "3.13.5 (main, Jul 15 2026, 20:25:40) [GCC 14.2.0]",
+  "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
+  "pairs": 10,
+  "guest_ms": 500,
+  "summary": {
+    "legacy": {
+      "median_wall_seconds": 1.2668826655000203,
+      "min_wall_seconds": 1.221743182999944,
+      "max_wall_seconds": 1.3498351880000428,
+      "total_ticks_per_second": 155012.3186679832
+    },
+    "fast": {
+      "median_wall_seconds": 1.1990241904999266,
+      "min_wall_seconds": 1.1451442679999673,
+      "max_wall_seconds": 1.3319758130000992,
+      "total_ticks_per_second": 162934.4241340813
+    }
+  },
+  "wall_time_speedup": 1.0565947505794695,
+  "tick_throughput_speedup": 1.0511062961587345,
+  "limitations": "Sequential live application phases, not identical-state replay. CPU ticks include HLT and are not retired instructions. Timings include normal debugger-loop and TCP polling costs.",
+  "base_commit": "5144476fe37815ec4b28007b98c823d2b749f7b8",
+  "patch_commit": "3f9ecf52c4ebb5a81fb878a8edcfaec70c8c7f7a",
+  "workload": "Pyro II, first level, no movement input, VGA, no VNC client",
+  "samples": [
+    {"pair":0,"mode":"legacy","wall_seconds":1.221743182999944,"cpu_ticks":188650,"clock_cycles":2385009,"polls":60},
+    {"pair":0,"mode":"fast","wall_seconds":1.1989658939999117,"cpu_ticks":198272,"clock_cycles":2385007,"polls":59},
+    {"pair":1,"mode":"fast","wall_seconds":1.1451442679999673,"cpu_ticks":189224,"clock_cycles":2385007,"polls":56},
+    {"pair":1,"mode":"legacy","wall_seconds":1.3498351880000428,"cpu_ticks":199676,"clock_cycles":2385001,"polls":66},
+    {"pair":2,"mode":"legacy","wall_seconds":1.2641948370001046,"cpu_ticks":192517,"clock_cycles":2385009,"polls":62},
+    {"pair":2,"mode":"fast","wall_seconds":1.244207736000135,"cpu_ticks":199195,"clock_cycles":2385005,"polls":61},
+    {"pair":3,"mode":"fast","wall_seconds":1.1941337470000235,"cpu_ticks":191534,"clock_cycles":2385009,"polls":59},
+    {"pair":3,"mode":"legacy","wall_seconds":1.3012311869999849,"cpu_ticks":198829,"clock_cycles":2385019,"polls":64},
+    {"pair":4,"mode":"legacy","wall_seconds":1.2473826109999209,"cpu_ticks":195206,"clock_cycles":2385009,"polls":61},
+    {"pair":4,"mode":"fast","wall_seconds":1.1932058190000134,"cpu_ticks":199277,"clock_cycles":2385000,"polls":59},
+    {"pair":5,"mode":"fast","wall_seconds":1.2000129649998144,"cpu_ticks":200172,"clock_cycles":2385003,"polls":59},
+    {"pair":5,"mode":"legacy","wall_seconds":1.2939211670000077,"cpu_ticks":198827,"clock_cycles":2385019,"polls":63},
+    {"pair":6,"mode":"legacy","wall_seconds":1.2854323609999483,"cpu_ticks":201553,"clock_cycles":2385004,"polls":63},
+    {"pair":6,"mode":"fast","wall_seconds":1.19200137599978,"cpu_ticks":197790,"clock_cycles":2385080,"polls":58},
+    {"pair":7,"mode":"fast","wall_seconds":1.24516772700008,"cpu_ticks":201384,"clock_cycles":2385031,"polls":61},
+    {"pair":7,"mode":"legacy","wall_seconds":1.2414396340000167,"cpu_ticks":197319,"clock_cycles":2385013,"polls":61},
+    {"pair":8,"mode":"legacy","wall_seconds":1.269570493999936,"cpu_ticks":203126,"clock_cycles":2385003,"polls":62},
+    {"pair":8,"mode":"fast","wall_seconds":1.3319758130000992,"cpu_ticks":197996,"clock_cycles":2385010,"polls":60},
+    {"pair":9,"mode":"fast","wall_seconds":1.1990824869999415,"cpu_ticks":203815,"clock_cycles":2385001,"polls":59},
+    {"pair":9,"mode":"legacy","wall_seconds":1.2632434339998326,"cpu_ticks":198843,"clock_cycles":2385001,"polls":62}
+  ]
+}
