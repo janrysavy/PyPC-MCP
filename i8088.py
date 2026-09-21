@@ -383,49 +383,7 @@ class i8088:
 
         return ((a + disp) & 0xffff, cycles, override_segment, new_segment)
 
-    # value, segment_a_valid, segment/, address of value, number of cycles
-    def GetRegisterMem(self, reg: int, mod: int, w: bool) -> Tuple[int, bool, int, int, int]:
-        if mod == 0:
-            (a, cycles) = self.GetDoubleRegisterMod00(reg)
-
-            segment =  self._state._segment_override if self._state._segment_override_set else self._state._ds
-
-            if self._state._segment_override_set == False and (reg == 2 or reg == 3):  # BP uses SS
-                segment = self._state._ss
-
-            v = self.ReadMemWord(segment, a) if w else self.ReadMemByte(segment, a)
-
-            cycles += 6
-
-            return (v, True, segment, a, cycles)
-
-        if mod == 1 or mod == 2:
-            word = mod == 2
-
-            (a, cycles, override_segment, new_segment) = self.GetDoubleRegisterMod01_02(reg, word)
-
-            segment = self._state._segment_override if self._state._segment_override_set else self._state._ds
-
-            if self._state._segment_override_set == False and override_segment:
-                segment = new_segment
-
-            if self._state._segment_override_set == False and (reg == 2 or reg == 3):  # BP uses SS
-                segment = self._state._ss
-
-            v = self.ReadMemWord(segment, a) if w else self.ReadMemByte(segment, a)
-
-            cycles += 6
-
-            return (v, True, segment, a, cycles)
-
-        if mod == 3:
-            v = self.GetRegister(reg, w)
-
-            return (v, False, 0, 0, 0)
-
-        return (0, False, 0, 0, 0)
-
-    def GetRegisterMem(self, reg: int, mod: int, w: bool):
+    def GetRegisterMem(self, reg: int, mod: int, w: bool, read: bool = True):
         if mod == 0:
             a, cycles = self.GetDoubleRegisterMod00(reg)
 
@@ -434,7 +392,9 @@ class i8088:
             if self._state._segment_override_set == False and (reg == 2 or reg == 3):  # BP uses SS
                 segment = self._state._ss
 
-            v = self.ReadMemWord(segment, a) if w else self.ReadMemByte(segment, a)
+            v = 0
+            if read:
+                v = self.ReadMemWord(segment, a) if w else self.ReadMemByte(segment, a)
 
             cycles += 6
 
@@ -453,7 +413,9 @@ class i8088:
             if self._state._segment_override_set == False and (reg == 2 or reg == 3):  # BP uses SS
                 segment = self._state._ss
 
-            v = self.ReadMemWord(segment, a) if w else self.ReadMemByte(segment, a)
+            v = 0
+            if read:
+                v = self.ReadMemWord(segment, a) if w else self.ReadMemByte(segment, a)
 
             cycles += 6
 
@@ -771,6 +733,7 @@ class i8088:
                 return -1
 
         # handle prefixes
+        rep_prefix = None
         while opcode in (0x26, 0x2e, 0x36, 0x3e, 0xf2, 0xf3):
             if opcode == 0x26:
                 self._state._segment_override = self._state._es
@@ -791,23 +754,23 @@ class i8088:
 
             self._state._rep_opcode = next_opcode  # TODO: only allow for certain instructions
 
-            if opcode == 0xf2:
+            if opcode in (0xf2, 0xf3):
+                rep_prefix = opcode
                 self._state._rep_addr = instr_start
-                if next_opcode in (0xa6, 0xa7, 0xae, 0xaf):
-                    self._state._rep_mode = state8088.State8088.RepMode.REPNZ
-                else:
-                    self._state._rep_mode = state8088.State8088.RepMode.REP
-            elif opcode == 0xf3:
-                self._state._rep_addr = instr_start
-                if next_opcode in (0xa6, 0xa7, 0xae, 0xaf):
-                    self._state._rep_mode = state8088.State8088.RepMode.REPE_Z
-                else:
-                    self._state._rep_mode = state8088.State8088.RepMode.REP
             else:
                 self._state._segment_override_set = True  # TODO: move up
                 cycle_count += 2
 
             opcode = next_opcode
+
+        # The next byte may itself be a prefix. Use the final opcode so
+        # segment-prefix order does not turn a conditional repeat into REP.
+        if rep_prefix is not None:
+            self._state._rep_mode = state8088.State8088.RepMode.REP
+            if opcode in (0xa6, 0xa7, 0xae, 0xaf):
+                self._state._rep_mode = (
+                    state8088.State8088.RepMode.REPE_Z if rep_prefix == 0xf3
+                    else state8088.State8088.RepMode.REPNZ)
 
         if opcode == 0x00:
             if self._terminate_on_off_the_rails == True:
@@ -1233,7 +1196,7 @@ class i8088:
             self._state.SetFlagA((v & 15) == 0)
 
             self._state.SetFlagS((v & 0x8000) == 0x8000 if word else (v & 0x80) == 0x80)
-            self._state.SetFlagZ(v == 0 if word else (v & 0xff) == 0)
+            self._state.SetFlagZ((v & (0xffff if word else 0xff)) == 0)
             self._state.SetFlagP(v)
 
         elif function == 1:
@@ -1246,7 +1209,7 @@ class i8088:
             self._state.SetFlagA((v & 15) == 15)
 
             self._state.SetFlagS((v & 0x8000) == 0x8000 if word else (v & 0x80) == 0x80)
-            self._state.SetFlagZ(v == 0 if word else (v & 0xff) == 0)
+            self._state.SetFlagZ((v & (0xffff if word else 0xff)) == 0)
             self._state.SetFlagP(v)
 
         elif function == 2:
@@ -1259,12 +1222,13 @@ class i8088:
             cycle_count += 16
 
         elif function == 3:
-            # CALL FAR
+            # Read the full target before a possibly aliased stack write.
+            target_cs = self.ReadMemWord(seg, (addr + 2) & 0xffff)
             self.push(self._state._cs)
             self.push(self._state._ip)
 
             self._state._ip = v
-            self._state._cs = self.ReadMemWord(seg, (addr + 2) & 0xffff)
+            self._state._cs = target_cs
 
             cycle_count += 37
 
@@ -1276,14 +1240,14 @@ class i8088:
         elif function == 5:
             # JMP
             self._state._cs = self.ReadMemWord(seg, (addr + 2) & 0xffff)
-            self._state._ip = self.ReadMemWord(seg, addr)
+            self._state._ip = v
             cycle_count += 15
 
         elif function == 6 or function == 7:
             # PUSH rmw
             if reg == 4 and mod == 3 and word == True:  # PUSH SP
-                v -= 2
-                self.WriteMemWord(self._state._ss, v, v)
+                # 8088 PUSH SP stores the decremented SP.
+                self.push((v - 2) & 0xffff)
 
             else:
                 self.push(v)
@@ -1292,9 +1256,10 @@ class i8088:
 
         v &= 0xffff if word else 0xff
 
-        if mod == 3 and reg == 4 and word:
-            put_cycles = 0
-        else:
+        # CALL, JMP and PUSH only read their explicit operand. Writing it
+        # back can corrupt a return address when it aliases the stack.
+        put_cycles = 0
+        if function in (0, 1):
             put_cycles = self.UpdateRegisterMem(reg, mod, a_valid, seg, addr, word, v)
 
         return cycle_count + put_cycles
@@ -1597,7 +1562,7 @@ class i8088:
         cycle_count = 2  # base (correct?)
 
         # get address to write to ('seg, addr')
-        (dummy, a_valid, seg, addr, get_cycles) = self.GetRegisterMem(mreg, mod, word)
+        (dummy, a_valid, seg, addr, get_cycles) = self.GetRegisterMem(mreg, mod, word, read=False)
         cycle_count += get_cycles
 
         if word:
@@ -1923,6 +1888,7 @@ class i8088:
                 self.push(self._state._ip)
 
             self._state.SetFlagI(False)
+            self._state.SetFlagT(False)
 
             self._state._ip = self.ReadMemWord(0, addr)
             self._state._cs = self.ReadMemWord(0, addr + 2)
@@ -2120,7 +2086,7 @@ class i8088:
         # JCXZ np
         offset = self.ToSigned8(self.GetPcByte())
 
-        addr = self._state._ip + offset
+        addr = (self._state._ip + offset) & 0xffff
 
         if self._state.GetCX() == 0:
             self._state._ip = addr
@@ -2324,8 +2290,7 @@ class i8088:
         # PUSH SP
         # special case, see:
         # https:#c9x.me/x86/html/file_module_x86_id_269.html
-        self._state._sp -= 2
-        self.WriteMemWord(self._state._ss, self._state._sp, self._state._sp)
+        self.push((self._state._sp - 2) & 0xffff)
         return 15
 
     def Op_PUSH_BP(self, opcode: int) -> int:  # 0x55
@@ -2689,7 +2654,7 @@ class i8088:
         reg = (o1 >> 3) & 7
         rm = o1 & 7
 
-        (val, a_valid, seg, addr, get_cycles) = self.GetRegisterMem(rm, mod, True)
+        (val, a_valid, seg, addr, get_cycles) = self.GetRegisterMem(rm, mod, True, read=False)
         self.PutRegister(reg, True, addr)
 
         return get_cycles + 3
