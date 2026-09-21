@@ -18,6 +18,7 @@ class i8088:
         self._memory_trace_hook = None
         self._interrupt_hook = None
         self._interrupt_stop = None
+        self._hardware_trace_hook = None
         self._instruction_address = None
 
         self._state: state8088.State8088 = state8088.State8088()
@@ -727,6 +728,10 @@ class i8088:
             self._instruction_address = {
                 'segment': self._state._cs, 'offset': self._state._ip,
             }
+        if self._hardware_trace_hook is not None:
+            self._io.SetHardwareTraceContext(
+                {'space': 'segmented', 'segment': self._state._cs,
+                 'offset': self._state._ip}, self._state._clock)
 
         # check for interrupt
         if (self._state._flags & (1 << 9)) != 0 and self._state._inhibit_interrupts == False:
@@ -878,6 +883,10 @@ class i8088:
 
     def SetIOTraceHook(self, hook):
         self._io.SetTraceHook(hook)
+
+    def SetHardwareTraceHook(self, hook):
+        self._hardware_trace_hook = hook
+        self._io.SetHardwareTraceHook(hook)
 
     def SetMemoryWriteHook(self, hook):
         if hook is None:

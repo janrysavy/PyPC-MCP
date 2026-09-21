@@ -13,6 +13,9 @@ class IO:
         self._tick_devices = []
         self._tick_methods = []
         self._trace_hook = None
+        self._hardware_trace_hook = None
+        self._hardware_trace_address = None
+        self._hardware_trace_clock = 0
 
         for device in devices:
             device.SetDma(self._i8237)
@@ -39,6 +42,16 @@ class IO:
     def SetTraceHook(self, hook):
         self._trace_hook = hook
 
+    def SetHardwareTraceHook(self, hook):
+        self._hardware_trace_hook = hook
+        self._pic.SetTraceHook(
+            (lambda event: hook(event)) if hook is not None else None)
+
+    def SetHardwareTraceContext(self, address, clock):
+        self._hardware_trace_address = address
+        self._hardware_trace_clock = clock
+        self._pic.SetTraceContext(address, clock)
+
     def In(self, addr: int, b16: bool) -> int:
         if self._test_mode:
             return 65535
@@ -63,6 +76,10 @@ class IO:
 
         if self._trace_hook is not None:
             self._trace_hook('io_read', addr, rc, 2 if b16 else 1, handled)
+        if self._hardware_trace_hook is not None:
+            self._hardware_trace_hook(
+                'io_read', addr, rc, 2 if b16 else 1, handled,
+                self._hardware_trace_address, self._hardware_trace_clock)
         return rc
 
     def Tick(self, ticks: int, clock: int) -> bool:
@@ -91,10 +108,18 @@ class IO:
 
             if self._trace_hook is not None:
                 self._trace_hook('io_write', addr, value, 2 if b16 else 1, True)
+            if self._hardware_trace_hook is not None:
+                self._hardware_trace_hook(
+                    'io_write', addr, value, 2 if b16 else 1, True,
+                    self._hardware_trace_address, self._hardware_trace_clock)
             return rc
 
         #print(f'IO {addr:04x} not handled for OUT')
 
         if self._trace_hook is not None:
             self._trace_hook('io_write', addr, value, 2 if b16 else 1, False)
+        if self._hardware_trace_hook is not None:
+            self._hardware_trace_hook(
+                'io_write', addr, value, 2 if b16 else 1, False,
+                self._hardware_trace_address, self._hardware_trace_clock)
         return False

@@ -92,7 +92,7 @@ Result:
   "memory_bytes":1048576,
   "address_spaces":["physical","linear","segmented"],
   "limits":{"max_memory_bytes":65536,"max_keyboard_events":32,
-    "retained_video_snapshots":8},
+    "max_trace_events":65536,"retained_video_snapshots":8},
   "methods":["agent.capabilities","emulator.info","state.get_registers",
     "state.get","state.set_registers","session.status","memory.read",
     "memory.write","video.text","video.snapshot","video.snapshot.read",
@@ -100,7 +100,8 @@ Result:
     "execution.pause","execution.continue","execution.go",
     "execution.run_until","execution.wait","execution.step",
     "breakpoints.create","breakpoints.list","breakpoints.delete",
-    "trace.start","trace.read","trace.stop"]
+    "trace.start","trace.read","trace.stop",
+    "hardware.trace.start","hardware.trace.read","hardware.trace.stop"]
 }
 ```
 
@@ -586,6 +587,48 @@ Stops recording without discarding retained events and returns `active:false` an
 the final `event_count`. A completed instruction-count trace can still be read
 and stopped.
 
+## `hardware.trace.start`
+
+Starts a bounded hardware recorder. It may run while the CPU is running or
+paused. It records port I/O and/or PIC IRQ transitions without changing the
+emulated machine:
+
+```json
+{
+  "capacity":1024,
+  "include_io":true,
+  "include_irq":true,
+  "ports":[{"first":"0x3d0","last":"0x3df"}],
+  "irqs":[1]
+}
+```
+
+`capacity` is `1..65536`. Empty `ports` or `irqs` arrays mean all values. Port
+filters apply to I/O events and IRQ filters apply to IRQ events. At least one
+event class must be enabled. The result reports `active`, `capacity`,
+`dropped_event_count`, and `first_available_sequence`.
+
+## `hardware.trace.read`
+
+Reads retained hardware events with a nullable `cursor` and bounded `limit`:
+
+```json
+{"cursor":null,"limit":128}
+```
+
+I/O events have `kind` (`io_read` or `io_write`), `emulated_time`, guest
+instruction `address`, `port`, `byte_count`, and `value`. IRQ events have
+`kind` (`irq_raise`, `irq_lower`, or `irq_dispatch`), `emulated_time`, guest
+instruction `address`, and `irq`; dispatch events also include the interrupt
+`vector`. Results include `active`, `capacity`, `dropped_event_count`,
+`first_available_sequence`, `events`, and `next_cursor`. Cursors use the form
+`hardware-N` and expire when the bounded recorder overwrites old events.
+
+## `hardware.trace.stop`
+
+Stops recording without discarding retained events. The result reports the
+final recorder metadata; drain retained events with `hardware.trace.read`.
+
 ## `execution.step`
 
 Accepts optional `{"mode":"into"}`. Requires the emulator to be paused. It
@@ -647,7 +690,7 @@ API, classified for this PyPC transport:
 | `trace.start/read/stop` | Implemented (CPU subset) | Bounded instruction addresses, opcode bytes, clock intervals, register snapshots, and ordered data-memory/I/O effects. |
 | `debug.output.read` | Deferred | No bounded diagnostic-output ring. |
 | `debugger.execute_command` | Deferred | Deliberately no raw debugger command escape hatch. |
-| `hardware.trace.start/read/stop` | Deferred | No hardware event recorder. |
+| `hardware.trace.start/read/stop` | Implemented (I/O and PIC subset) | Bounded filtered port-I/O and IRQ transition/dispatch events. |
 | `dos.trace.start/read/stop` | Deferred | No DOS file-operation recorder. |
 
 Deferred methods are intentionally omitted from the `methods` capability list and

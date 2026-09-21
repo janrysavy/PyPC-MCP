@@ -25,6 +25,9 @@ class i8259(device.Device):
         self._ii_icw4_req = False
         self._ocw2 = 0
         self._ocw3 = 0
+        self._trace_hook = None
+        self._trace_address = None
+        self._trace_clock = 0
 
     @override
     def GetIRQNumber(self) -> int:
@@ -58,21 +61,53 @@ class i8259(device.Device):
             if (self._irr & mask) == mask and (self._isr & mask) == 0 and (self._imr & mask) == 0:
                 return i
 
+    def SetTraceHook(self, hook):
+        self._trace_hook = hook
+
+    def SetTraceContext(self, address, clock):
+        self._trace_address = address
+        self._trace_clock = clock
+
+    def _trace_event(self, kind, interrupt_nr, vector=None):
+        if self._trace_hook is None:
+            return
+        event = {
+            'kind': kind, 'irq': interrupt_nr,
+            'address': (None if self._trace_address is None
+                        else dict(self._trace_address)),
+            'emulated_time': self._trace_clock,
+        }
+        if vector is not None:
+            event['vector'] = vector
+        self._trace_hook(event)
+
+    def _clear_requests(self, mask):
+        for interrupt_nr in range(8):
+            bit = 1 << interrupt_nr
+            if (mask & bit) and (self._irr & bit):
+                self._irr &= ~bit
+                self._trace_event('irq_lower', interrupt_nr)
+
     def GetInterruptLevel(self) -> int:
         return self._irq_request_level
 
     def RequestInterruptPIC(self, interrupt_nr: int):
         mask = 1 << interrupt_nr
+        already_requested = (self._irr & mask) != 0
         self._irr |= mask
+        if not already_requested:
+            self._trace_event('irq_raise', interrupt_nr)
 
     def SetIRQBeingServiced(self, interrupt_nr: int):
+        self._trace_event(
+            'irq_dispatch', interrupt_nr, self._int_offset + interrupt_nr)
         if self._auto_eoi == False:
             self._int_in_service = interrupt_nr
             mask = 1 << interrupt_nr
             self._isr |= mask
         else:
             mask = ~(1 << interrupt_nr)
-            self._irr &= mask
+            self._clear_requests(1 << interrupt_nr)
             self._isr &= mask
             self._int_in_service = -1
 
@@ -105,7 +140,7 @@ class i8259(device.Device):
 
                 self._imr = 0  # TODO 255?
                 self._isr = 0
-                self._irr = 0
+                self._clear_requests(0xff)
 
                 self._int_in_service  = -1
 
@@ -123,7 +158,7 @@ class i8259(device.Device):
                             i = value & 7
 
                             mask = ~(1 << i)
-                            self._irr &= mask
+                            self._clear_requests(1 << i)
                             self._isr &= mask
                             if i == self._int_in_service:
                                 self._int_in_service = -1
@@ -131,7 +166,7 @@ class i8259(device.Device):
                         else:
                             if self._int_in_service != -1:
                                 mask = ~(1 << self._int_in_service)
-                                self._irr &= mask
+                                self._clear_requests(1 << self._int_in_service)
                                 self._isr &= mask
                                 self._int_in_service = -1
 

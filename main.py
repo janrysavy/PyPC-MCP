@@ -7,6 +7,7 @@ import bus
 import cga
 import debugserver
 import debugbreakpoints
+import debughardware
 import debugtrace
 import i8088
 import i8253
@@ -114,11 +115,13 @@ try:
         'memory_watchpoints_active': False,
         'interrupt_breakpoints_active': False,
         'trace_active': False, 'instruction_hooks_active': False,
+        'hardware_trace_active': False,
         'next_operation': 1, 'operations': {}, 'active_operation': None,
         'run_until_id': None,
     }
     breakpoints = debugbreakpoints.BreakpointManager()
     trace = debugtrace.TraceRecorder()
+    hardware_trace = debughardware.HardwareTraceRecorder()
 
     def rpc_params(request):
         params = request.get('params', {})
@@ -222,6 +225,8 @@ try:
             rpc_trace_memory if control['trace_active'] else None)
         p.SetIOTraceHook(
             rpc_trace_io if control['trace_active'] else None)
+        p.SetHardwareTraceHook(
+            rpc_hardware_event if control['hardware_trace_active'] else None)
 
     def rpc_trace_event():
         registers = rpc_registers()
@@ -264,6 +269,20 @@ try:
         event['effects'].append({
             'kind': kind, 'port': port, 'byte_count': byte_count,
             'value': value, 'handled': bool(handled),
+        })
+
+    def rpc_hardware_event(*args):
+        if len(args) == 1 and isinstance(args[0], dict):
+            hardware_trace.capture(args[0])
+            return
+        kind, port, value, byte_count, handled, address, clock = args
+        hardware_trace.capture({
+            'kind': kind,
+            'emulated_time': clock,
+            'address': address,
+            'port': port,
+            'byte_count': byte_count,
+            'value': value,
         })
 
     def rpc_memory_access(kind, physical, old, new, instruction_address):
@@ -358,6 +377,8 @@ try:
                     'execution.wait', 'execution.step',
                     'breakpoints.create', 'breakpoints.list', 'breakpoints.delete',
                     'trace.start', 'trace.read', 'trace.stop',
+                    'hardware.trace.start', 'hardware.trace.read',
+                    'hardware.trace.stop',
                 ],
             }
 
@@ -586,6 +607,26 @@ try:
         if method == 'trace.stop':
             result = trace.stop()
             control['trace_active'] = False
+            rpc_refresh_instruction_hooks()
+            return result
+
+        if method == 'hardware.trace.start':
+            result = hardware_trace.start(
+                params.get('capacity', 4096),
+                params.get('include_io', True),
+                params.get('include_irq', True),
+                params.get('ports'), params.get('irqs'))
+            control['hardware_trace_active'] = True
+            rpc_refresh_instruction_hooks()
+            return result
+
+        if method == 'hardware.trace.read':
+            limit = rpc_number(params.get('limit', 128), 'limit')
+            return hardware_trace.read(params.get('cursor'), limit)
+
+        if method == 'hardware.trace.stop':
+            result = hardware_trace.stop()
+            control['hardware_trace_active'] = False
             rpc_refresh_instruction_hooks()
             return result
 
