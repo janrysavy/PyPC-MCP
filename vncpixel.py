@@ -58,12 +58,21 @@ class PixelFormat:
                            self.blue_shift)
 
     def encode_bgra(self, pixels):
-        source = bytes(pixels)
-        if len(source) % 4:
+        if len(pixels) % 4:
             raise ValueError('display framebuffer must contain four-byte pixels')
         if (self.bits == 32 and not self.big_endian and
                 self.channels == ((255, 16), (255, 8), (255, 0))):
-            return source  # Native BGRX: bytes input is returned without copying.
+            # socket.sendall accepts bytes-like objects. Keep the renderer's
+            # bytearray/memoryview alive and avoid a per-frame list/bytes copy.
+            if isinstance(pixels, (bytes, bytearray, memoryview)):
+                return pixels
+            return bytes(pixels)
+        try:
+            source = memoryview(pixels).cast('B')
+        except TypeError:
+            # Keep compatibility with callers that still provide a sequence
+            # of channel integers rather than a bytes-like framebuffer.
+            source = memoryview(bytes(pixels))
         if self.bits == 32 and all(maximum == 255 and shift % 8 == 0
                                    for maximum, shift in self.channels):
             # Common 32-bit endian/channel permutations use C-level slice copies.
@@ -77,7 +86,7 @@ class PixelFormat:
         stride = self.bits // 8
         byte_order = 'big' if self.big_endian else 'little'
         for offset in range(0, len(source), 4):
-            color = source[offset:offset + 3]
+            color = (source[offset], source[offset + 1], source[offset + 2])
             encoded = palette.get(color)
             if encoded is None:
                 blue, green, red = color

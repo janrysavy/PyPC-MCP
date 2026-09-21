@@ -17,6 +17,8 @@ class VNCServer:
             self.stream_lock = threading.Lock()
             self.stream = -1
             self.frame_requested = False
+            self.incremental = False
+            self.sent_frame_version = None
             self.pixel_format = NATIVE_FORMAT
 
     def __init__(self, display, kb, port, compatible):
@@ -27,6 +29,8 @@ class VNCServer:
         self._compatible = compatible
         self._compatible_width = 640
         self._compatible_height = 400
+        self._frame_cache = None
+        self._frame_cache_version = None
 
         self._key_map = dict()
         self._key_map[0xff1b] = ( 0x01, )  # escape
@@ -140,6 +144,17 @@ class VNCServer:
         _thread.name = "vnc-server-thread"
         _thread.start()
 
+    def _get_frame(self):
+        """Render once per visible display version, shared by all sessions."""
+        version_getter = getattr(self._display, 'GetFrameVersion', None)
+        if not callable(version_getter):
+            return self._display.GetFrame()
+        version = version_getter()
+        if getattr(self, '_frame_cache_version', None) != version:
+            self._frame_cache = self._display.GetFrame()
+            self._frame_cache_version = version
+        return self._frame_cache
+
     def PushChar(self, c, press):
         if self._kb == None:
             return
@@ -183,7 +198,7 @@ class VNCServer:
     def VNCClientServerInit(self, stream):
         self.RecvExact(stream, 1)
 
-        example = self._display.GetFrame()
+        example = self._get_frame()
         width = self._compatible_width if self._compatible else example[0]
         height = self._compatible_height if self._compatible else example[1]
         reply = [ 0 ] * 24
@@ -215,6 +230,7 @@ class VNCServer:
                 self.RecvExact(session.stream, 3)  # padding
                 session.pixel_format = PixelFormat.from_bytes(
                     self.RecvExact(session.stream, 16))
+                session.sent_frame_version = None
             elif type_ == 2:  # SetEncodings
                 temp = self.RecvExact(session.stream, 3)
 
@@ -228,7 +244,8 @@ class VNCServer:
                         print("VNC client supports audio")
                         session.audio_enabled = True
             elif type_ == 3:  # FramebufferUpdateRequest
-                self.RecvExact(session.stream, 9)
+                request = self.RecvExact(session.stream, 9)
+                session.incremental = bool(request[0])
                 session.frame_requested = True
             elif type_ == 4:  # KeyEvent
                 buffer = self.RecvExact(session.stream, 7)
@@ -253,7 +270,17 @@ class VNCServer:
         return False
 
     def VNCSendFrame(self, session):
-        frame = self._display.GetFrame()
+        frame = self._get_frame()
+        version_getter = getattr(self._display, 'GetFrameVersion', None)
+        frame_version = version_getter() if callable(version_getter) else None
+
+        if (session.incremental and frame_version is not None and
+                session.sent_frame_version == frame_version):
+            # RFC 6143 permits an update with zero rectangles when an
+            # incremental request has no changed pixels.
+            with session.stream_lock:
+                session.stream.sendall(b'\x00\x00\x00\x00')
+            return
 
         width = self._compatible_width if self._compatible else frame[0]
         height = self._compatible_height if self._compatible else frame[1]
@@ -277,7 +304,7 @@ class VNCServer:
         update[15] = 0
 
         if self._compatible and (width != frame[0] or height != frame[1]):
-            buffer = [ 0 ] * (width * height * 4)
+            buffer = bytearray(width * height * 4)
             use_width = min(width, frame[0])
             use_height = min(height, frame[1])
             for y in range(use_height):
@@ -291,6 +318,7 @@ class VNCServer:
             with session.stream_lock:
                 session.stream.sendall(bytes(update))
                 session.stream.sendall(session.pixel_format.encode_bgra(frame[2]))
+        session.sent_frame_version = frame_version
 
     def VNCClientThread(self, session):
         try:

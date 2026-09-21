@@ -105,6 +105,8 @@ class PixelEncodingTests(unittest.TestCase):
         from vncpixel import NATIVE_FORMAT
         pixels = bytes((0x33, 0x22, 0x11, 0xff))
         self.assertIs(NATIVE_FORMAT.encode_bgra(pixels), pixels)
+        pixels = bytearray(pixels)
+        self.assertIs(NATIVE_FORMAT.encode_bgra(pixels), pixels)
         self.assertEqual(NATIVE_FORMAT.to_bytes(), pixel_format())
 
     def test_invalid_fields_are_rejected(self):

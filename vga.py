@@ -156,6 +156,7 @@ class VGA(cga.CGA):
         mode &= 0xff
         if mode not in (0x03, 0x12, 0x13):
             return False
+        self._mark_frame_dirty()
         self._display_address = 0
         self._cursor_location = -1
         self._attributes[:16] = range(16)
@@ -264,7 +265,7 @@ class VGA(cga.CGA):
             return
         self._gf_width = width
         self._gf_height = height
-        self._pixels = [0, 0, 0, 255] * (width * height)
+        self._pixels = bytearray((0, 0, 0, 255)) * (width * height)
 
     def _update_graphics_mode(self):
         """Infer standard VGA mode 12h/13h from the programmed registers."""
@@ -412,7 +413,11 @@ class VGA(cga.CGA):
     @override
     def WriteByte(self, offset: int, value: int):
         if self._ram_offset <= offset < self._ram_offset + len(self._ram):
-            self._ram[offset - self._ram_offset] = value
+            index = offset - self._ram_offset
+            value &= 0xff
+            if self._ram[index] != value:
+                self._ram[index] = value
+                self._mark_frame_dirty()
             return
         if 0xa0000 <= offset < 0xb0000:
             plane_offset = offset - 0xa0000
@@ -428,12 +433,15 @@ class VGA(cga.CGA):
                     # it cheap; unusual raster operations use the full VGA
                     # latch/write-mode implementation below.
                     self._planes[plane][planar_offset] = value
+                    self._mark_frame_dirty()
                 else:
                     self._write_planar_byte(planar_offset, value,
                                             1 << plane)
+                    self._mark_frame_dirty()
                 return
             if self._graphics_mode == 0x12:
                 self._write_planar_byte(plane_offset, value)
+                self._mark_frame_dirty()
                 return
             map_mask = self._sequencer[2] & 0x0f
             if map_mask == 0:
@@ -441,6 +449,7 @@ class VGA(cga.CGA):
             for plane in range(4):
                 if map_mask & (1 << plane):
                     self._planes[plane][plane_offset] = value
+            self._mark_frame_dirty()
 
     def _write_crtc(self, port: int, value: int) -> bool:
         handled = super().IO_Write(port, value)
@@ -493,6 +502,7 @@ class VGA(cga.CGA):
 
     @override
     def IO_Write(self, port: int, value: int) -> bool:
+        self._mark_frame_dirty()
         if port == 0x3c0:
             if self._attribute_flipflop:
                 index = self._attribute_reg & 0x1f
@@ -559,6 +569,9 @@ class VGA(cga.CGA):
         address_mask = self.GetTextAddressMask()
         cursor = self.GetCursorInfo()
         text_palette = [self._text_palette_color(color) for color in range(16)]
+        rgba_palette = [bytes((*palette, 255)) for palette in text_palette]
+        row_bytes = 8 * pixel_width * 4
+        glyph_cache = {}
         for y in range(25):
             for x in range(columns):
                 offset = (self._display_address + (y * columns + x) * 2) & address_mask
@@ -568,53 +581,66 @@ class VGA(cga.CGA):
                 if blink and not self._blink_phase:
                     foreground = background
                 glyph_offset = self._font_offset(character, attributes)
+                glyph_key = (glyph_offset, foreground, background, pixel_width)
+                glyph = glyph_cache.get(glyph_key)
+                if glyph is None:
+                    rendered = bytearray(row_bytes * 16)
+                    for py in range(16):
+                        line = self._planes[2][(glyph_offset + py) & 0xffff]
+                        row_offset = py * row_bytes
+                        for glyph_x in range(8):
+                            color = foreground if line & (0x80 >> glyph_x) else background
+                            pixel = rgba_palette[color]
+                            pixel_offset = row_offset + glyph_x * pixel_width * 4
+                            rendered[pixel_offset:pixel_offset + 4] = pixel
+                            if pixel_width == 2:
+                                rendered[pixel_offset + 4:pixel_offset + 8] = pixel
+                    glyph = bytes(rendered)
+                    glyph_cache[glyph_key] = glyph
                 for py in range(16):
-                    line = self._planes[2][(glyph_offset + py) & 0xffff]
                     pixel_offset = ((y * 16 + py) * 640 +
                                     x * 8 * pixel_width) * 4
-                    for glyph_x in range(8):
-                        palette = text_palette[
-                            foreground if line & (0x80 >> glyph_x) else background]
-                        for repeat_x in range(pixel_width):
-                            index = pixel_offset + (glyph_x * pixel_width + repeat_x) * 4
-                            self._pixels[index + 0] = palette[0]
-                            self._pixels[index + 1] = palette[1]
-                            self._pixels[index + 2] = palette[2]
-                            self._pixels[index + 3] = 255
+                    source_offset = py * row_bytes
+                    self._pixels[pixel_offset:pixel_offset + row_bytes] = glyph[
+                        source_offset:source_offset + row_bytes]
                 if cursor['visible'] and offset == cursor['address']:
                     start = cursor['start_scanline']
                     end = cursor['end_scanline']
+                    cursor_row = rgba_palette[foreground] * (8 * pixel_width)
                     for py in range(start, end + 1):
                         pixel_offset = ((y * 16 + py) * 640 +
                                         x * 8 * pixel_width) * 4
-                        for glyph_x in range(8 * pixel_width):
-                            index = pixel_offset + glyph_x * 4
-                            palette = text_palette[foreground]
-                            self._pixels[index + 0] = palette[0]
-                            self._pixels[index + 1] = palette[1]
-                            self._pixels[index + 2] = palette[2]
-                            self._pixels[index + 3] = 255
+                        self._pixels[pixel_offset:pixel_offset + row_bytes] = cursor_row
         return 640, 400, self._pixels
 
     def RenderMode13FrameGraphical(self):
         self._set_frame_size(640, 400)
+        row_size = 640 * 4
+        # Mode 13h doubles each source pixel in both dimensions. Build the
+        # complete 2-pixel horizontal block once per palette entry, then each
+        # source scanline only needs one assignment per source pixel and two
+        # row copies instead of four nested pixel assignments.
+        pixel_blocks = {
+            color: bytes((*self._palette[color & self._dac_pixel_mask], 255)) * 2
+            for color in range(256)
+        }
         for y in range(200):
             row_offset = y * 320
-            output_offset = y * 2 * 640 * 4
+            line = bytearray(row_size)
             for x in range(320):
                 color = self._planes[x & 3][((row_offset + x) >> 2) & 0xffff]
-                palette = self._palette[color & self._dac_pixel_mask]
-                for repeat_y in range(2):
-                    line_offset = output_offset + repeat_y * 640 * 4
-                    pixel_offset = line_offset + x * 2 * 4
-                    for repeat_x in range(2):
-                        index = pixel_offset + repeat_x * 4
-                        self._pixels[index:index + 4] = (*palette, 255)
+                pixel_offset = x * 8
+                line[pixel_offset:pixel_offset + 8] = pixel_blocks[
+                    color & self._dac_pixel_mask]
+            output_offset = y * 2 * row_size
+            self._pixels[output_offset:output_offset + row_size] = line
+            self._pixels[output_offset + row_size:output_offset + 2 * row_size] = line
         return 640, 400, self._pixels
 
     def RenderMode12FrameGraphical(self):
         self._set_frame_size(640, 480)
         text_palette = [self._graphics_pixel_color(color) for color in range(16)]
+        rgba_palette = [bytes((*palette, 255)) for palette in text_palette]
         byte_cache = {}
         for y in range(480):
             row_offset = y * 80
@@ -624,16 +650,15 @@ class VGA(cga.CGA):
                 key = tuple(self._planes[p][plane_offset] for p in range(4))
                 colors = byte_cache.get(key)
                 if colors is None:
-                    colors = []
+                    chunk = bytearray(32)
                     for bit in range(8):
-                        colors.append(sum(((key[p] >> (7 - bit)) & 1) << p
-                                          for p in range(4)))
+                        color = sum(((key[p] >> (7 - bit)) & 1) << p
+                                    for p in range(4))
+                        chunk[bit * 4:bit * 4 + 4] = rgba_palette[color]
+                    colors = bytes(chunk)
                     byte_cache[key] = colors
                 pixel_index = output_offset + byte_x * 32
-                for color in colors:
-                    palette = text_palette[color]
-                    self._pixels[pixel_index:pixel_index + 4] = (*palette, 255)
-                    pixel_index += 4
+                self._pixels[pixel_index:pixel_index + 32] = colors
         return 640, 480, self._pixels
 
     @override
@@ -650,6 +675,8 @@ class VGA(cga.CGA):
     def Tick(self, cycles: int, clock: int) -> bool:
         result = super().Tick(cycles, clock)
         phase = bool((clock // BLINK_HALF_PERIOD_CYCLES) & 1)
+        if phase != self._blink_phase:
+            self._mark_frame_dirty()
         self._blink_phase = phase
         self._cursor_phase = phase
         return result

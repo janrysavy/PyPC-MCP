@@ -130,6 +130,7 @@ class CGA(mda.MDA):
             self._color_update_line_count = 0
 
         self._last_update += 1
+        self._mark_frame_dirty()
 
         return False
 
@@ -240,7 +241,7 @@ class CGA(mda.MDA):
                     self._pixels[offset2 + 0] = self._pixels[offset2 + 1] = self._pixels[offset2 + 2] = value
                     b >>= 1
 
-                return 640, 400, self._pixels
+            return 640, 400, self._pixels
 
         except Exception as e:
             print(f'CGA::RenderG640FrameGraphical exception: {e}, line number: {e.__traceback__.tb_lineno}')

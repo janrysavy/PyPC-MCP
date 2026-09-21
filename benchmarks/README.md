@@ -74,3 +74,20 @@ retired instructions. The benchmark-only wrapper is present in both modes and
 is not used in production. Snapshot hashes identify the observed start/end
 video but do not prove mechanic equivalence. Keep live-game results private
 when they contain private register/memory/video information.
+
+## Video/VNC hot-path benchmark
+
+The video benchmark isolates renderer and VNC costs without booting a guest:
+
+```sh
+python benchmarks/benchmark_video.py --frames 20 --repeats 5 > video.json
+```
+
+It measures native-buffer and RGB565 conversion, VGA text/mode 12h/mode 13h,
+CGA text/graphics rendering, cached unchanged frames, and the incremental VNC
+empty-update path. The renderer benchmark calls `GetFrame()` repeatedly, while
+the cached VNC case represents repeated framebuffer requests with no visible
+display-version change. Timings are host-dependent; the useful comparison is
+between two runs on the same machine. Native buffers should avoid a list-to-
+bytes allocation, and unchanged incremental requests should transfer only the
+four-byte VNC update header.

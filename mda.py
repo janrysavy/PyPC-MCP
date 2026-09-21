@@ -10,12 +10,13 @@ class MDA(graphics.Graphics):
         self._ram: bytearray = bytearray(b'\xff' * 16384)
         self._hsync: bool = False
         self._last_update: int = 0
+        self._frame_version: int = 1
         self._font = font.Font().get_font()
         self._display_address = 0
         self._ram_offset = 0xb0000
         self._gf_width = 640
         self._gf_height = 400
-        self._pixels = [ 0, 0, 0, 255 ] * (self._gf_width * self._gf_height)
+        self._pixels = bytearray((0, 0, 0, 255)) * (self._gf_width * self._gf_height)
 
         self._palette = []
         for p_row in [
@@ -54,6 +55,13 @@ class MDA(graphics.Graphics):
     def GetClock(self):
         return self._last_update
 
+    def GetFrameVersion(self):
+        """Return a monotonically increasing version for visible changes."""
+        return self._frame_version
+
+    def _mark_frame_dirty(self):
+        self._frame_version += 1
+
     @override
     def GetAddressList(self) -> list[Tuple[int, int]]:
         return [(self._ram_offset, 0x8000)]
@@ -75,7 +83,10 @@ class MDA(graphics.Graphics):
     @override
     def WriteByte(self, offset: int, value: int):
         use_offset = (offset - self._ram_offset) & 0x3fff
-        self._ram[use_offset] = value
+        value &= 0xff
+        if self._ram[use_offset] != value:
+            self._ram[use_offset] = value
+            self._mark_frame_dirty()
         # self._last_update += 1
 
     def RenderTextFrameGraphical(self):
