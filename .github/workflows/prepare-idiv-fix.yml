@@ -64,10 +64,6 @@ jobs:
                               self._state.SetAL(quotient & mask)
                               self._state.SetAH(remainder & mask)
           '''
-          # Remove the extra indentation needed by this YAML block from all
-          # lines except the first; leave the Python source indentation intact.
-          lines = replacement.splitlines(True)
-          replacement = lines[0] + ''.join(line[10:] if line.startswith('          ') else line for line in lines[1:])
           p.write_text(source[:start] + replacement + source[end:])
           PY
           python -m unittest discover -s tests -v
