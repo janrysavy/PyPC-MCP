@@ -126,6 +126,11 @@ try:
     state = p.GetState()
     state.SetCS(0xf000)
     state.SetIP(0xfff0)
+    if arguments.video == 'vga':
+        p.SetInterruptServiceHook(
+            lambda number, cpu_state:
+                number == 0x10 and cpu_state.GetCS() != 0xf000 and
+                scr.BiosInterrupt(cpu_state))
 
     t = telnet.Telnet(2300, kb, scr)
     v = vncserver.VNCServer(scr, kb, 5902, False)
@@ -366,6 +371,10 @@ try:
         vram = bytes(scr._ram)
         text = '\n'.join(ReadTextScreen(scr)).encode('utf-8')
         snapshot_data = {'vram': vram, 'text': text}
+        graphics_vram = (scr.GetGraphicsMemorySnapshot()
+                         if hasattr(scr, 'GetGraphicsMemorySnapshot') else None)
+        if graphics_vram is not None:
+            snapshot_data['graphics_vram'] = graphics_vram
         if hasattr(scr, 'GetFontMemory'):
             snapshot_data['font'] = scr.GetFontMemory()
         control['snapshot_number'] += 1
@@ -386,6 +395,11 @@ try:
             'text': rpc_snapshot_component(text),
             'vram': rpc_snapshot_component(vram),
         }
+        if graphics_vram is not None:
+            result['graphics_vram'] = rpc_snapshot_component(graphics_vram)
+            result['graphics_vram_layout'] = (
+                'chain4_guest_order' if scr._graphics_mode == 0x13
+                else 'planes_0_to_3_concatenated')
         if 'font' in snapshot_data:
             result['font'] = rpc_snapshot_component(snapshot_data['font'])
         if hasattr(scr, 'GetCursorInfo'):

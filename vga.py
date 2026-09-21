@@ -36,7 +36,9 @@ class VGA(cga.CGA):
         self._sequencer_reg = 0
         self._graphics = [0] * 9
         self._graphics[6] = 0x0c  # A0000 graphics-memory aperture
+        self._graphics[8] = 0xff  # bit mask
         self._graphics_reg = 0
+        self._latches = [0] * 4
         self._attributes = [0] * 0x15
         self._attributes[:16] = range(16)
         # Text-mode DOS software commonly uses bit 7 as the fourth background
@@ -96,6 +98,20 @@ class VGA(cga.CGA):
     def GetFontMemory(self):
         return bytes(self._planes[2])
 
+    def GetGraphicsMemorySnapshot(self):
+        """Return the active A0000h view in a stable debugger format."""
+        if self._graphics_mode == 0x13:
+            # Mode 13h exposes the four planar bytes interleaved by chain-4:
+            # guest address low bits select the plane and the remaining bits
+            # select its byte offset.
+            return bytes(self._planes[address & 3][(address >> 2) & 0xffff]
+                         for address in range(0x10000))
+        if self._graphics_mode == 0x12:
+            # Mode 12h is planar. Preserve all four 64 KiB planes rather than
+            # the currently selected read plane so snapshots are lossless.
+            return b''.join(bytes(plane) for plane in self._planes)
+        return None
+
     def GetCursorInfo(self):
         start = self._m6845.Read(10) & 0x1f
         end = self._m6845.Read(11) & 0x1f
@@ -125,6 +141,233 @@ class VGA(cga.CGA):
 
     def GetTextColumns(self):
         return 40 if self._cga_mode == self.CGAMode.Text40 else 80
+
+    def _clear_graphics_memory(self):
+        for plane in self._planes:
+            plane[:] = b'\x00' * len(plane)
+
+    def _write_crtc_registers(self, values):
+        for index, value in values.items():
+            self._m6845.Write(index, value)
+        self._m6845_reg = 0
+
+    def BiosSetMode(self, mode):
+        """Handle standard VGA INT 10h mode selection for the local BIOS."""
+        mode &= 0xff
+        if mode not in (0x03, 0x12, 0x13):
+            return False
+        self._display_address = 0
+        self._cursor_location = -1
+        self._attributes[:16] = range(16)
+        self._attributes[0x10] = 0x00
+        self._attributes[0x12] = 0x0f
+        self._attributes[0x14] = 0x00
+        self._graphics = [0] * 9
+        self._graphics[7] = 0x0f
+        self._graphics[8] = 0xff
+        self._sequencer = [0, 1, 0x0f, 0, 0x06]
+        crtc_common = {1: 79, 9: 15, 12: 0, 13: 0, 14: 0, 15: 0}
+
+        if mode == 0x13:
+            self._attributes[0x10] = 0x01  # color graphics
+            self._graphics[5] = 0x40
+            self._graphics[6] = 0x05
+            self._sequencer[4] = 0x0e
+            self._write_crtc_registers({**crtc_common, 1: 39, 9: 0, 18: 0xc7})
+            self._graphics_mode = 0x13
+            self._cga_mode = self.CGAMode.G320
+            self._set_frame_size(640, 400)
+            self._clear_graphics_memory()
+            return True
+
+        if mode == 0x12:
+            self._attributes[0x10] = 0x01  # color graphics
+            self._graphics[6] = 0x05
+            self._write_crtc_registers({**crtc_common, 18: 0xdf})
+            self._graphics_mode = 0x12
+            self._cga_mode = self.CGAMode.G640
+            self._set_frame_size(640, 480)
+            self._clear_graphics_memory()
+            return True
+
+        if mode == 0x03:
+            self._graphics[5] = 0x10
+            self._graphics[6] = 0x0c
+            self._write_crtc_registers({**crtc_common, 18: 0xdf})
+            self._graphics_mode = 3
+            self._cga_mode = self.CGAMode.Text80
+            self._set_frame_size(640, 400)
+            self._ram[:] = b'\x00' * len(self._ram)
+            return True
+
+        return False
+
+    def BiosWritePixel(self, x, y, color):
+        xor = bool(color & 0x80)
+        color &= 0x0f if self._graphics_mode == 0x12 else 0x7f
+        if self._graphics_mode == 0x13:
+            if 0 <= x < 320 and 0 <= y < 200:
+                address = 0xa0000 + y * 320 + x
+                if xor:
+                    color ^= self.ReadByte(address)
+                self.WriteByte(address, color)
+                return True
+        elif self._graphics_mode == 0x12:
+            if 0 <= x < 640 and 0 <= y < 480:
+                plane_offset = y * 80 + (x >> 3)
+                bit = 0x80 >> (x & 7)
+                if xor:
+                    color ^= sum(((self._planes[plane][plane_offset] & bit) != 0)
+                                 << plane for plane in range(4))
+                for plane in range(4):
+                    if color & (1 << plane):
+                        self._planes[plane][plane_offset] |= bit
+                    else:
+                        self._planes[plane][plane_offset] &= ~bit
+                return True
+        return False
+
+    def BiosInterrupt(self, state):
+        """Service the small standard INT 10h subset needed for VGA modes."""
+        if state.GetAH() == 0x00:
+            return self.BiosSetMode(state.GetAL())
+        if state.GetAH() == 0x0f:
+            state.SetAL(self._graphics_mode & 0xff)
+            state.SetAH(40 if self._graphics_mode == 0x13 else 80)
+            state.SetBX(state.GetBX() & 0xff00)
+            return True
+        if state.GetAH() == 0x0c:
+            return self.BiosWritePixel(state.GetCX(), state.GetDX(),
+                                       state.GetAL())
+        if state.GetAH() == 0x0d:
+            color = self.BiosReadPixel(state.GetCX(), state.GetDX())
+            if color is None:
+                return False
+            state.SetAL(color)
+            return True
+        return False
+
+    def BiosReadPixel(self, x, y):
+        if self._graphics_mode == 0x13:
+            if 0 <= x < 320 and 0 <= y < 200:
+                return self.ReadByte(0xa0000 + y * 320 + x)
+        elif self._graphics_mode == 0x12:
+            if 0 <= x < 640 and 0 <= y < 480:
+                plane_offset = y * 80 + (x >> 3)
+                bit = 0x80 >> (x & 7)
+                return sum(((self._planes[plane][plane_offset] & bit) != 0)
+                           << plane for plane in range(4))
+        return None
+
+    def _set_frame_size(self, width, height):
+        if self._gf_width == width and self._gf_height == height:
+            return
+        self._gf_width = width
+        self._gf_height = height
+        self._pixels = [0, 0, 0, 255] * (width * height)
+
+    def _update_graphics_mode(self):
+        """Infer standard VGA mode 12h/13h from the programmed registers."""
+        # Standard VGA graphics modes select the A0000h aperture, disable
+        # odd/even addressing, and select graphics mode in GC register 6.
+        memory_map_a000 = (self._graphics[6] & 0x0d) == 0x05
+        chain4 = bool(self._sequencer[4] & 0x08)
+        packed_256 = bool(self._graphics[5] & 0x40)
+        if memory_map_a000 and chain4 and packed_256:
+            self._graphics_mode = 0x13
+            self._cga_mode = self.CGAMode.G320
+            self._set_frame_size(640, 400)
+        elif (memory_map_a000 and not chain4 and not packed_256 and
+              self._m6845.Read(18) >= 0xdf):
+            self._graphics_mode = 0x12
+            self._cga_mode = self.CGAMode.G640
+            self._set_frame_size(640, 480)
+        elif self._graphics_mode in (0x12, 0x13):
+            self._graphics_mode = 3
+            self._cga_mode = self.CGAMode.Text80
+            self._set_frame_size(640, 400)
+
+    def _graphics_pixel_color(self, color):
+        return self._text_palette_color(color)
+
+    def _load_latches(self, plane_offset):
+        for plane in range(4):
+            self._latches[plane] = self._planes[plane][plane_offset & 0xffff]
+
+    @staticmethod
+    def _rotate_byte(value, count):
+        count &= 7
+        if not count:
+            return value & 0xff
+        return ((value >> count) | (value << (8 - count))) & 0xff
+
+    def _write_planar_byte(self, plane_offset, value, plane_mask=None):
+        """Apply the VGA graphics-controller write operation to one byte."""
+        write_mode = self._graphics[5] & 0x03
+        rotate = self._graphics[3] & 0x07
+        bit_mask = self._graphics[8]
+        enable_set_reset = self._graphics[1] & 0x0f
+        set_reset = self._graphics[0] & 0x0f
+        logical_op = (self._graphics[3] >> 3) & 0x03
+        rotated = self._rotate_byte(value, rotate)
+
+        for plane in range(4):
+            latch = self._latches[plane]
+            if write_mode == 0:
+                if enable_set_reset & (1 << plane):
+                    source = 0xff if set_reset & (1 << plane) else 0x00
+                else:
+                    source = rotated
+                write_mask = bit_mask
+            elif write_mode == 1:
+                source = latch
+                write_mask = 0xff
+            elif write_mode == 2:
+                source = 0xff if value & (1 << plane) else 0x00
+                write_mask = bit_mask
+            elif write_mode == 3:
+                source = 0xff if set_reset & (1 << plane) else 0x00
+                write_mask = bit_mask & rotated
+            else:
+                continue
+
+            if write_mode == 1:
+                # Write mode 1 is the latch copy path. The host byte,
+                # rotate, logical-op, and bit-mask fields are ignored.
+                result = latch
+            else:
+                if logical_op == 1:
+                    source &= latch
+                elif logical_op == 2:
+                    source |= latch
+                elif logical_op == 3:
+                    source ^= latch
+                result = (source & write_mask) | (latch & ~write_mask)
+            enabled_planes = self._sequencer[2] & 0x0f
+            if plane_mask is not None:
+                enabled_planes &= plane_mask
+            if enabled_planes & (1 << plane):
+                self._planes[plane][plane_offset & 0xffff] = result & 0xff
+
+    def _read_planar_byte(self, offset):
+        if self._graphics_mode == 0x13:
+            plane = offset & 3
+            plane_offset = (offset >> 2) & 0xffff
+        else:
+            plane = self._graphics[4] & 3
+            plane_offset = offset & 0xffff
+        self._load_latches(plane_offset)
+        if self._graphics[5] & 0x08:
+            compare = self._graphics[2] & 0x0f
+            dont_care = self._graphics[7] & 0x0f
+            result = 0
+            for bit in range(8):
+                color = sum(((self._latches[p] >> (7 - bit)) & 1) << p
+                            for p in range(4))
+                if ((color ^ compare) & dont_care) == 0:
+                    result |= 1 << (7 - bit)
+            return result
+        return self._latches[plane]
 
     @override
     def DecodeTextAttribute(self, attributes):
@@ -160,6 +403,8 @@ class VGA(cga.CGA):
         if self._ram_offset <= offset < self._ram_offset + len(self._ram):
             return self._ram[offset - self._ram_offset]
         if 0xa0000 <= offset < 0xb0000:
+            if self._graphics_mode in (0x12, 0x13):
+                return self._read_planar_byte(offset - 0xa0000)
             plane = self._graphics[4] & 3
             return self._planes[plane][offset - 0xa0000]
         return 0xff
@@ -171,6 +416,25 @@ class VGA(cga.CGA):
             return
         if 0xa0000 <= offset < 0xb0000:
             plane_offset = offset - 0xa0000
+            if self._graphics_mode == 0x13:
+                plane = plane_offset & 3
+                planar_offset = (plane_offset >> 2) & 0xffff
+                if (self._sequencer[2] & (1 << plane) and
+                        self._graphics[5] & 0x03 == 0 and
+                        self._graphics[3] & 0x1f == 0 and
+                        self._graphics[8] == 0xff and
+                        self._graphics[1] & (1 << plane) == 0):
+                    # Standard mode 13h uses a direct chain-4 byte path. Keep
+                    # it cheap; unusual raster operations use the full VGA
+                    # latch/write-mode implementation below.
+                    self._planes[plane][planar_offset] = value
+                else:
+                    self._write_planar_byte(planar_offset, value,
+                                            1 << plane)
+                return
+            if self._graphics_mode == 0x12:
+                self._write_planar_byte(plane_offset, value)
+                return
             map_mask = self._sequencer[2] & 0x0f
             if map_mask == 0:
                 map_mask = 1
@@ -189,6 +453,7 @@ class VGA(cga.CGA):
         if port in (0x3d5, 0x3d7, 0x3d1, 0x3d3) and self._m6845_reg == 1:
             self._cga_mode = (self.CGAMode.Text40 if value <= 40
                               else self.CGAMode.Text80)
+        self._update_graphics_mode()
         return handled
 
     @override
@@ -241,6 +506,7 @@ class VGA(cga.CGA):
             return False
         if port == 0x3c2:
             self._misc_output = value
+            self._update_graphics_mode()
             return False
         if port == 0x3c6:
             self._dac_pixel_mask = value & 0xff
@@ -271,6 +537,7 @@ class VGA(cga.CGA):
         if port == 0x3c5:
             if self._sequencer_reg < len(self._sequencer):
                 self._sequencer[self._sequencer_reg] = value
+            self._update_graphics_mode()
             return False
         if port == 0x3ce:
             self._graphics_reg = value & 0x0f
@@ -278,6 +545,7 @@ class VGA(cga.CGA):
         if port == 0x3cf:
             if self._graphics_reg < len(self._graphics):
                 self._graphics[self._graphics_reg] = value
+            self._update_graphics_mode()
             return False
         if port in (0x3d4, 0x3d6, 0x3d0, 0x3d2,
                     0x3d5, 0x3d7, 0x3d1, 0x3d3):
@@ -328,8 +596,52 @@ class VGA(cga.CGA):
                             self._pixels[index + 3] = 255
         return 640, 400, self._pixels
 
+    def RenderMode13FrameGraphical(self):
+        self._set_frame_size(640, 400)
+        for y in range(200):
+            row_offset = y * 320
+            output_offset = y * 2 * 640 * 4
+            for x in range(320):
+                color = self._planes[x & 3][((row_offset + x) >> 2) & 0xffff]
+                palette = self._palette[color & self._dac_pixel_mask]
+                for repeat_y in range(2):
+                    line_offset = output_offset + repeat_y * 640 * 4
+                    pixel_offset = line_offset + x * 2 * 4
+                    for repeat_x in range(2):
+                        index = pixel_offset + repeat_x * 4
+                        self._pixels[index:index + 4] = (*palette, 255)
+        return 640, 400, self._pixels
+
+    def RenderMode12FrameGraphical(self):
+        self._set_frame_size(640, 480)
+        text_palette = [self._graphics_pixel_color(color) for color in range(16)]
+        byte_cache = {}
+        for y in range(480):
+            row_offset = y * 80
+            output_offset = y * 640 * 4
+            for byte_x in range(80):
+                plane_offset = row_offset + byte_x
+                key = tuple(self._planes[p][plane_offset] for p in range(4))
+                colors = byte_cache.get(key)
+                if colors is None:
+                    colors = []
+                    for bit in range(8):
+                        colors.append(sum(((key[p] >> (7 - bit)) & 1) << p
+                                          for p in range(4)))
+                    byte_cache[key] = colors
+                pixel_index = output_offset + byte_x * 32
+                for color in colors:
+                    palette = text_palette[color]
+                    self._pixels[pixel_index:pixel_index + 4] = (*palette, 255)
+                    pixel_index += 4
+        return 640, 480, self._pixels
+
     @override
     def GetFrame(self):
+        if self._graphics_mode == 0x12:
+            return self.RenderMode12FrameGraphical()
+        if self._graphics_mode == 0x13:
+            return self.RenderMode13FrameGraphical()
         if self._cga_mode in (self.CGAMode.Text40, self.CGAMode.Text80):
             return self.RenderTextFrameGraphical()
         return super().GetFrame()

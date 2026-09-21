@@ -3,8 +3,8 @@
 This document is the complete contract for the AI/debug control channel built into
 PyPC. It follows the DOSBox-X agent convention of using JSON-RPC 2.0 method names
 and JSON-lines framing. It also records the portability audit against the
-DOSBox-X debugger-agent API. PyPC supports CGA and text-only VGA adapters;
-the adapter is selected when the emulator starts.
+DOSBox-X debugger-agent API. PyPC supports CGA and VGA text plus standard VGA
+graphics modes 12h and 13h; the adapter is selected when the emulator starts.
 
 ## Transport
 
@@ -53,7 +53,7 @@ Numbers may be JSON integers or strings accepted by Python `int(value, 0)`, such
 | `memory.read` | Read a bounded physical/linear/segmented memory block. |
 | `memory.write` | Guarded memory write while paused. |
 | `video.text` | Read the active CGA or VGA text screen directly from video memory. |
-| `video.snapshot` | Capture immutable text video-memory, font, and decoded-text bytes. |
+| `video.snapshot` | Capture immutable video-memory, graphics VRAM, font, and decoded-text bytes. |
 | `video.snapshot.read` | Read a bounded component from a retained video snapshot. |
 | `io.read` | Read one byte from an emulated I/O port. |
 | `io.write` | Write one byte to an emulated I/O port while paused. |
@@ -278,9 +278,9 @@ or:
 ```
 
 The page size is `columns * 25 * 2` bytes. CGA has 16 KiB of text/graphics RAM,
-so it exposes four 80-column pages or eight 40-column pages. Text-only VGA has
-32 KiB of text RAM, so it exposes eight 80-column pages or sixteen 40-column
-pages. A text-mode program can render into one page and flip the CRTC start
+so it exposes four 80-column pages or eight 40-column pages. VGA has 32 KiB of
+text RAM, so it exposes eight 80-column pages or sixteen 40-column pages. A
+text-mode program can render into one page and flip the CRTC start
 address to another; `active_page`, `page`, and `is_active_page` make that flip
 observable. A page read never changes the CRTC or the display.
 `display_address` is always a byte offset in the adapter's video memory; the
@@ -319,16 +319,18 @@ bits 4..6 are the background palette index. On VGA with blink enabled, bit 7 is
 reported as `blink`; with VGA blink disabled, bit 7 is the fourth background bit.
 `columns` is `40` or `80`. In graphics modes the text and cell arrays are still
 the raw character interpretation of video memory and should not be treated as a
-graphical screenshot. Text-only VGA additionally returns a `cursor` object with
-the CRTC cursor address, shape, enable state, and current blink phase.
+graphical screenshot. VGA additionally returns a `cursor` object with the CRTC
+cursor address, shape, enable state, and current blink phase.
 
 ## `video.snapshot`
 
-Captures immutable adapter video memory and decoded text bytes at one CPU-thread boundary.
-The snapshot retains raw VRAM, so character attributes and all render pages remain
-available even after the live screen changes. Text-only VGA snapshots additionally
-retain the 64 KiB VGA plane-2 font memory. At most eight snapshots are retained;
-older snapshots expire.
+Captures immutable adapter video memory and decoded text bytes at one CPU-thread
+boundary. The snapshot retains raw VRAM, so character attributes and all render
+pages remain available even after the live screen changes. VGA snapshots also
+retain the 64 KiB plane-2 font memory. In mode 12h or 13h they additionally
+retain `graphics_vram`: mode 12h is four concatenated 64 KiB planes in plane
+order 0..3; mode 13h is the 64 KiB guest-visible chain-4 A0000h byte order.
+At most eight snapshots are retained; older snapshots expire.
 
 No parameters. Result:
 
@@ -348,9 +350,20 @@ No parameters. Result:
 }
 ```
 
-VGA results also include a `font` component and `cursor` metadata. The VGA font
-component is 65536 bytes and contains plane 2 as exposed through the text-mode
-font aperture.
+The `graphics_vram` fields appear only in VGA modes 12h and 13h. VGA results
+also include a `font` component and `cursor` metadata. The VGA font component
+is 65536 bytes and contains plane 2 as exposed through the text-mode font
+aperture. A mode 13h snapshot adds:
+
+```json
+{
+  "graphics_vram":{"byte_count":65536,"sha256":"..."},
+  "graphics_vram_layout":"chain4_guest_order"
+}
+```
+
+For mode 12h, `graphics_vram.byte_count` is 262144 and the layout is
+`planes_0_to_3_concatenated`.
 
 ## `video.snapshot.read`
 
@@ -360,8 +373,8 @@ Reads one retained snapshot component. Parameters:
 {"snapshot_id":"snap-1","component":"vram","offset":0,"length":64}
 ```
 
-`component` is `vram` or `text`; VGA additionally supports `font`. Result includes
-both whole-component and chunk metadata:
+`component` is `vram`, `text`, or `graphics_vram`; VGA additionally supports
+`font`. Result includes both whole-component and chunk metadata:
 
 ```json
 {
@@ -706,8 +719,8 @@ API, classified for this PyPC transport:
 | `input.state` | Implemented (XT subset) | Raw pressed scan codes; no named-key/joystick layer. |
 | `dos.memory_map` | Deferred | No DOS loader/MCB metadata model. |
 | `checkpoints.create/list/restore/delete` | Deferred | No complete machine snapshot serializer. |
-| `video.snapshot` | Implemented (CGA and text-only VGA) | Immutable raw VRAM/text snapshot; VGA also includes plane-2 fonts, but not VGA graphics/DAC frames. |
-| `video.snapshot.read` | Implemented (`vram`, `text`, VGA `font`) | Bounded retained-component reads. |
+| `video.snapshot` | Implemented (CGA and VGA text/12h/13h) | Immutable raw VRAM/text snapshot; VGA also includes plane-2 fonts and lossless graphics VRAM for modes 12h/13h. |
+| `video.snapshot.read` | Implemented (`vram`, `text`, VGA `font`/`graphics_vram`) | Bounded retained-component reads. |
 | `memory.read` | Implemented | Bus-backed 1 MiB reads. |
 | `memory.write` | Implemented | Paused, SHA-guarded bus writes. |
 | `io.write` | Implemented | Paused byte write through the emulated I/O bus. |

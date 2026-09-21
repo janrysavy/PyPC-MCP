@@ -2,6 +2,7 @@
 
 import unittest
 
+from state8088 import State8088
 from vga import BLINK_HALF_PERIOD_CYCLES, VGA, VGA_DEFAULT_PALETTE_RGB
 
 
@@ -126,6 +127,127 @@ class VGATextTests(unittest.TestCase):
         self.assertEqual(self.video.ReadTextByte(self.video._display_address), ord('B'))
         _, _, pixels = self.video.GetFrame()
         self.assertEqual(len(pixels), 640 * 400 * 4)
+
+    def test_mode13_chain4_memory_and_rendering(self):
+        self.video.IO_Write(0x3c4, 4)
+        self.video.IO_Write(0x3c5, 0x0e)
+        self.video.IO_Write(0x3c4, 2)
+        self.video.IO_Write(0x3c5, 0x0f)
+        self.video.IO_Write(0x3ce, 5)
+        self.video.IO_Write(0x3cf, 0x40)
+        self.video.IO_Write(0x3ce, 6)
+        self.video.IO_Write(0x3cf, 0x05)
+        self.assertEqual(self.video._graphics_mode, 0x13)
+
+        for offset, value in enumerate((1, 2, 3, 4)):
+            self.video.WriteByte(0xa0000 + offset, value)
+        self.assertEqual([self.video.ReadByte(0xa0000 + i)
+                          for i in range(4)], [1, 2, 3, 4])
+
+        width, height, pixels = self.video.GetFrame()
+        self.assertEqual((width, height), (640, 400))
+        self.assertEqual(tuple(pixels[0:4]), (*self.video._palette[1], 255))
+        self.assertEqual(tuple(pixels[2 * 4:3 * 4]),
+                         (*self.video._palette[2], 255))
+
+    def test_mode12_planar_memory_and_rendering(self):
+        self.video.IO_Write(0x3d4, 0x12)
+        self.video.IO_Write(0x3d5, 0xdf)
+        self.video.IO_Write(0x3c4, 4)
+        self.video.IO_Write(0x3c5, 0x06)
+        self.video.IO_Write(0x3c4, 2)
+        self.video.IO_Write(0x3c5, 0x0f)
+        self.video.IO_Write(0x3ce, 5)
+        self.video.IO_Write(0x3cf, 0x02)
+        self.video.IO_Write(0x3ce, 6)
+        self.video.IO_Write(0x3cf, 0x05)
+        self.assertEqual(self.video._graphics_mode, 0x12)
+
+        self.video.WriteByte(0xa0000, 0x0a)
+        self.video.IO_Write(0x3ce, 4)
+        self.video.IO_Write(0x3cf, 1)
+        self.assertEqual(self.video.ReadByte(0xa0000), 0xff)
+
+        width, height, pixels = self.video.GetFrame()
+        self.assertEqual((width, height), (640, 480))
+        self.assertEqual(tuple(pixels[0:4]), (*self.video._palette[10], 255))
+        self.assertEqual(tuple(pixels[1 * 4:2 * 4]),
+                         (*self.video._palette[10], 255))
+
+    def test_bios_modes_and_write_pixel_xor(self):
+        state = State8088()
+        self.video.BiosSetMode(0x13)
+        self.assertFalse(self.video.BiosSetMode(0x01))
+        self.assertEqual(self.video._graphics_mode, 0x13)
+        state.SetAX(0x0013)
+        self.assertTrue(self.video.BiosInterrupt(state))
+        self.assertEqual((self.video._graphics_mode, self.video.GetTextColumns()),
+                         (0x13, 80))
+
+        state.SetAX(0x0c05)
+        state.SetCX(7)
+        state.SetDX(9)
+        self.assertTrue(self.video.BiosInterrupt(state))
+        state.SetAL(0x85)
+        self.assertTrue(self.video.BiosInterrupt(state))
+        self.assertEqual(self.video.ReadByte(0xa0000 + 9 * 320 + 7), 0)
+        state.SetAH(0x0d)
+        self.assertTrue(self.video.BiosInterrupt(state))
+        self.assertEqual(state.GetAL(), 0)
+
+        state.SetAX(0x0012)
+        self.assertTrue(self.video.BiosInterrupt(state))
+        self.assertEqual((self.video._graphics_mode, self.video.GetTextColumns()),
+                         (0x12, 80))
+        state.SetAX(0x0c0a)
+        state.SetCX(3)
+        state.SetDX(4)
+        self.assertTrue(self.video.BiosInterrupt(state))
+        state.SetAL(0x8a)
+        self.assertTrue(self.video.BiosInterrupt(state))
+        plane_offset = 4 * 80
+        self.assertEqual([self.video._planes[p][plane_offset] for p in range(4)],
+                         [0, 0, 0, 0])
+        state.SetAH(0x0d)
+        self.assertTrue(self.video.BiosInterrupt(state))
+        self.assertEqual(state.GetAL(), 0)
+
+    def test_mode13_write_uses_graphics_bit_mask(self):
+        self.video.BiosSetMode(0x13)
+        self.video.IO_Write(0x3ce, 8)
+        self.video.IO_Write(0x3cf, 0x0f)
+        self.video.WriteByte(0xa0000, 0xff)
+        self.assertEqual(self.video._planes[0][0], 0x0f)
+
+    def test_planar_write_mode1_copies_latches_only(self):
+        self.video.BiosSetMode(0x12)
+        expected = (0x11, 0x22, 0x33, 0x44)
+        for plane, value in enumerate(expected):
+            self.video._planes[plane][0] = value
+        self.video.ReadByte(0xa0000)  # load all four VGA latches
+        self.video.IO_Write(0x3ce, 3)
+        self.video.IO_Write(0x3cf, 0x19)  # write mode 1, XOR logical op
+        self.video.IO_Write(0x3ce, 8)
+        self.video.IO_Write(0x3cf, 0x00)
+        self.video.WriteByte(0xa0000, 0xa5)
+        self.assertEqual(tuple(plane[0] for plane in self.video._planes),
+                         expected)
+
+    def test_graphics_memory_snapshot_layouts(self):
+        self.video.BiosSetMode(0x13)
+        for address, value in enumerate((1, 2, 3, 4)):
+            self.video.WriteByte(0xa0000 + address, value)
+        snapshot = self.video.GetGraphicsMemorySnapshot()
+        self.assertEqual(len(snapshot), 0x10000)
+        self.assertEqual(snapshot[:4], bytes((1, 2, 3, 4)))
+
+        self.video.BiosSetMode(0x12)
+        for plane in range(4):
+            self.video._planes[plane][0] = plane + 1
+        snapshot = self.video.GetGraphicsMemorySnapshot()
+        self.assertEqual(len(snapshot), 4 * 0x10000)
+        self.assertEqual([snapshot[plane * 0x10000] for plane in range(4)],
+                         [1, 2, 3, 4])
 
     def test_blink_phase_is_stable_between_vnc_frames(self):
         self.video.Tick(0, 0)

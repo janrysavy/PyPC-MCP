@@ -18,6 +18,7 @@ class i8088:
         self._memory_trace_hook = None
         self._interrupt_hook = None
         self._interrupt_stop = None
+        self._interrupt_service_hook = None
         self._hardware_trace_hook = None
         self._instruction_address = None
 
@@ -912,6 +913,9 @@ class i8088:
         self._interrupt_hook = hook
         if hook is None:
             self._interrupt_stop = None
+
+    def SetInterruptServiceHook(self, hook):
+        self._interrupt_service_hook = hook
 
     def ConsumeInterruptStop(self):
         stop = self._interrupt_stop
@@ -1904,6 +1908,10 @@ class i8088:
                 if self._interrupt_stop is not None:
                     self._state._ip = self._instruction_address['offset']
                     return 0
+
+            if (self._interrupt_service_hook is not None and
+                    self._interrupt_service_hook(int, self._state)):
+                return 51
 
             addr = (int * 4) & 0xffff
 
