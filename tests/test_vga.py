@@ -2,7 +2,7 @@
 
 import unittest
 
-from vga import BLINK_HALF_PERIOD_CYCLES, VGA
+from vga import BLINK_HALF_PERIOD_CYCLES, VGA, VGA_DEFAULT_PALETTE_RGB
 
 
 class VGATextTests(unittest.TestCase):
@@ -43,16 +43,25 @@ class VGATextTests(unittest.TestCase):
         self.video.IO_Write(0x3c0, 0x1f)
         self.assertEqual(self.video.IO_Read(0x3c1), 0xff)
 
+    def test_extended_background_color_is_default(self):
+        self.assertEqual(self.video.DecodeTextAttribute(0xaa), (10, 10, False))
+
+    def test_default_palette_matches_vga_rgb_values(self):
+        actual_rgb = [(red, green, blue) for blue, green, red
+                      in self.video._palette[:16]]
+        self.assertEqual(actual_rgb, list(VGA_DEFAULT_PALETTE_RGB))
+
     def test_dac_palette_write_and_readback(self):
         self.video.IO_Write(0x3c8, 4)
         self.video.IO_Write(0x3c9, 0x3f)
         self.video.IO_Write(0x3c9, 0x20)
         self.video.IO_Write(0x3c9, 0x10)
-        self.assertEqual(self.video._palette[4], (64, 128, 252))
+        self.assertEqual(self.video._palette[4], (65, 130, 255))
 
         self.video.IO_Write(0x3c7, 4)
         self.assertEqual([self.video.IO_Read(0x3c9) for _ in range(3)],
                          [0x3f, 0x20, 0x10])
+        self.assertEqual(self.video.IO_Read(0x3c7), 3)
 
     def test_attribute_palette_maps_text_colors(self):
         self.video.IO_Read(0x3da)
@@ -69,7 +78,7 @@ class VGATextTests(unittest.TestCase):
         width, height, pixels = self.video.GetFrame()
         self.assertEqual((width, height), (640, 400))
         self.assertEqual(tuple(pixels[0:4]), (255, 255, 255, 255))
-        self.assertEqual(tuple(pixels[7 * 4:8 * 4]), (127, 0, 0, 255))
+        self.assertEqual(tuple(pixels[7 * 4:8 * 4]), (170, 0, 0, 255))
 
     def test_cursor_shape_and_blink_are_rendered(self):
         self.video.WriteByte(0xb8000, ord('A'))

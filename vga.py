@@ -8,6 +8,12 @@ import font
 
 CPU_CLOCK_HZ = 4_770_000
 BLINK_HALF_PERIOD_CYCLES = CPU_CLOCK_HZ // 2
+VGA_DEFAULT_PALETTE_RGB = (
+    (0, 0, 0), (0, 0, 170), (0, 170, 0), (0, 170, 170),
+    (170, 0, 0), (170, 0, 170), (170, 85, 0), (170, 170, 170),
+    (85, 85, 85), (85, 85, 255), (85, 255, 85), (85, 255, 255),
+    (255, 85, 85), (255, 85, 255), (255, 255, 85), (255, 255, 255),
+)
 
 
 class VGA(cga.CGA):
@@ -33,13 +39,18 @@ class VGA(cga.CGA):
         self._graphics_reg = 0
         self._attributes = [0] * 0x15
         self._attributes[:16] = range(16)
-        self._attributes[0x10] = 0x08  # blink enabled, 16-color text
+        # Text-mode DOS software commonly uses bit 7 as the fourth background
+        # color bit. Start VGA in that extended-color mode; software that
+        # explicitly enables blinking can still set bit 3 through 0x3c0.
+        self._attributes[0x10] = 0x00
         self._attributes[0x14] = 0x00  # color-select register
         self._attribute_reg = 0
         self._attribute_flipflop = False
         # VGA DAC components are six bits wide. Keep the public palette in
         # the BGR tuple order used by MDA, but retain the DAC's RGB ordering
         # for port reads and writes.
+        self._palette[:16] = [
+            (blue, green, red) for red, green, blue in VGA_DEFAULT_PALETTE_RGB]
         self._palette.extend([(0, 0, 0)] * (256 - len(self._palette)))
         self._dac = []
         for blue, green, red in self._palette:
@@ -48,6 +59,7 @@ class VGA(cga.CGA):
         self._dac_write_component = 0
         self._dac_read_index = 0
         self._dac_read_component = 0
+        self._dac_state = 0
         self._dac_pixel_mask = 0xff
         self._misc_output = 0x67  # color display, VGA clock selection
         self._blink_phase = True
@@ -126,11 +138,22 @@ class VGA(cga.CGA):
 
     def _text_palette_color(self, color):
         palette_index = self._attributes[color & 0x0f] & 0x3f
-        return self._palette[palette_index]
+        color_select = self._attributes[0x14]
+        if self._attributes[0x10] & 0x80:
+            palette_index = ((palette_index & 0x0f) |
+                             ((color_select & 0x03) << 4))
+        palette_index |= (color_select & 0x0c) << 4
+        return self._palette[palette_index & self._dac_pixel_mask]
+
+    @staticmethod
+    def _expand_dac(value):
+        return (value << 2) | (value >> 4)
 
     def _update_dac_color(self, index):
         red, green, blue = self._dac[index]
-        self._palette[index] = (blue * 4, green * 4, red * 4)
+        self._palette[index] = (self._expand_dac(blue),
+                                self._expand_dac(green),
+                                self._expand_dac(red))
 
     @override
     def ReadByte(self, offset: int) -> int:
@@ -178,7 +201,7 @@ class VGA(cga.CGA):
         if port == 0x3c6:
             return self._dac_pixel_mask
         if port == 0x3c7:
-            return self._dac_read_index
+            return self._dac_state
         if port == 0x3c8:
             return self._dac_write_index
         if port == 0x3c9:
@@ -209,7 +232,8 @@ class VGA(cga.CGA):
             if self._attribute_flipflop:
                 index = self._attribute_reg & 0x1f
                 if index < len(self._attributes):
-                    self._attributes[index] = value
+                    self._attributes[index] = (value & 0x3f
+                                               if index < 0x10 else value)
                 self._attribute_flipflop = False
             else:
                 self._attribute_reg = value & 0x1f
@@ -224,10 +248,12 @@ class VGA(cga.CGA):
         if port == 0x3c7:
             self._dac_read_index = value
             self._dac_read_component = 0
+            self._dac_state = 3
             return False
         if port == 0x3c8:
             self._dac_write_index = value
             self._dac_write_component = 0
+            self._dac_state = 0
             return False
         if port == 0x3c9:
             index = self._dac_write_index
@@ -264,6 +290,7 @@ class VGA(cga.CGA):
         pixel_width = 2 if columns == 40 else 1
         address_mask = self.GetTextAddressMask()
         cursor = self.GetCursorInfo()
+        text_palette = [self._text_palette_color(color) for color in range(16)]
         for y in range(25):
             for x in range(columns):
                 offset = (self._display_address + (y * columns + x) * 2) & address_mask
@@ -278,8 +305,8 @@ class VGA(cga.CGA):
                     pixel_offset = ((y * 16 + py) * 640 +
                                     x * 8 * pixel_width) * 4
                     for glyph_x in range(8):
-                        palette = self._text_palette_color(
-                            foreground if line & (0x80 >> glyph_x) else background)
+                        palette = text_palette[
+                            foreground if line & (0x80 >> glyph_x) else background]
                         for repeat_x in range(pixel_width):
                             index = pixel_offset + (glyph_x * pixel_width + repeat_x) * 4
                             self._pixels[index + 0] = palette[0]
@@ -294,7 +321,7 @@ class VGA(cga.CGA):
                                         x * 8 * pixel_width) * 4
                         for glyph_x in range(8 * pixel_width):
                             index = pixel_offset + glyph_x * 4
-                            palette = self._text_palette_color(foreground)
+                            palette = text_palette[foreground]
                             self._pixels[index + 0] = palette[0]
                             self._pixels[index + 1] = palette[1]
                             self._pixels[index + 2] = palette[2]
