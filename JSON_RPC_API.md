@@ -62,8 +62,10 @@ Numbers may be JSON integers or strings accepted by Python `int(value, 0)`, such
 | `breakpoints.list` | List active execution breakpoints and hit counts. |
 | `breakpoints.delete` | Delete an execution breakpoint. |
 | `execution.pause` | Stop at the next instruction boundary. |
-| `execution.continue` | Resume execution. |
+| `execution.continue` | Resume execution and return an operation id. |
 | `execution.go` | Alias of `execution.continue`. |
+| `execution.run_until` | Resume execution until an execution predicate matches. |
+| `execution.wait` | Poll a continue or run-until operation. |
 | `execution.step` | Execute exactly one instruction, then pause. |
 
 ## `agent.capabilities`
@@ -91,7 +93,9 @@ Result:
     "state.get","state.set_registers","session.status","memory.read",
     "memory.write","video.text","video.snapshot","video.snapshot.read",
     "io.read","input.keyboard","keyboard.scancode","input.state",
-    "execution.pause","execution.continue","execution.go","execution.step"]
+    "execution.pause","execution.continue","execution.go",
+    "execution.run_until","execution.wait","execution.step",
+    "breakpoints.create","breakpoints.list","breakpoints.delete"]
 }
 ```
 
@@ -466,12 +470,51 @@ The register fields in the result are exactly those of `state.get_registers`.
 
 ## `execution.continue`
 
-No parameters. Resumes execution. Result is the current register object with
-`paused:false` added. `execution.go` is an exact alias.
+No parameters. Resumes execution and returns the current register object with
+`paused:false`, plus an operation handle:
+
+```json
+{"operation_id":"op-1","state":"running","paused":false}
+```
+
+The operation completes when execution reaches a breakpoint, a run-until
+predicate, or an explicit `execution.pause`. `execution.go` is an exact alias.
 
 ## `execution.go`
 
 No parameters. Exact alias of `execution.continue`.
+
+## `execution.run_until`
+
+Requires a paused emulator. Parameters contain one execution predicate using the
+same address, condition, and hit-filter fields as `breakpoints.create`:
+
+```json
+{
+  "predicate":{
+    "kind":"execution",
+    "address":{"space":"segmented","segment":"0x1000","offset":"0x0020"},
+    "condition":{"register":"ax","operator":"eq","value":"0x004c"}
+  }
+}
+```
+
+The predicate is private and one-shot. The result contains `operation_id`,
+`predicate_id`, and `state:"running"`. `max_emulated_ns` is not supported yet
+because PyPC does not currently expose an emulated nanosecond clock.
+
+## `execution.wait`
+
+Polls an operation returned by `execution.continue` or `execution.run_until`.
+`timeout_ms` is validated but the current single-threaded server does not block
+inside an RPC handler; use repeated bounded polls. A pending operation returns:
+
+```json
+{"running":true}
+```
+
+A completed operation returns `state:"stopped"` and a structured `stop_reason`
+matching `session.status.last_stop`.
 
 ## `execution.step`
 
@@ -513,7 +556,8 @@ API, classified for this PyPC transport:
 | `session.status` | Implemented | Fixed implicit `pypc` session. |
 | `session.start`, `session.stop` | Deferred | PyPC is attached to one already-created machine/image. |
 | `execution.continue` | Implemented | Resumes the CPU loop. |
-| `execution.run_until`, `execution.wait` | Deferred | No operation/predicate scheduler yet. |
+| `execution.run_until` | Implemented (execution predicates) | Private one-shot execution predicate using the breakpoint matcher. |
+| `execution.wait` | Implemented (bounded polling) | Polls continue/run-until operations; timeout is non-blocking. |
 | `execution.pause` | Implemented | Pauses at an instruction boundary. |
 | `execution.step` | Implemented (`into`) | `over` needs temporary breakpoints. |
 | `state.get_registers` | Implemented | Native 8088 state is directly available. |

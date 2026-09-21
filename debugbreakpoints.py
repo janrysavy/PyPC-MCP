@@ -19,6 +19,7 @@ class _Breakpoint:
     once: bool
     condition: dict | None
     hit_filter: dict
+    private: bool = False
     hit_count: int = 0
 
     def matches_address(self, segment: int, offset: int, physical: int) -> bool:
@@ -80,7 +81,7 @@ class BreakpointManager:
             return int(value, 0)
         raise ValueError(f'{name} must be a number')
 
-    def create(self, params: dict) -> dict:
+    def create(self, params: dict, id_prefix: str = 'bp', private: bool = False) -> dict:
         if params.get('kind', 'execution') != 'execution':
             raise ValueError('only execution breakpoints are supported')
 
@@ -136,17 +137,18 @@ class BreakpointManager:
         if skip < 0 or every < 1:
             raise ValueError('hit_filter.skip must be non-negative and every must be positive')
 
-        breakpoint_id = f'bp-{self._next_id}'
+        breakpoint_id = f'{id_prefix}-{self._next_id}'
         self._next_id += 1
         breakpoint = _Breakpoint(
             breakpoint_id, normalized_address, physical, length, once, condition,
-            {'skip': skip, 'every': every},
+            {'skip': skip, 'every': every}, private,
         )
         self._breakpoints[breakpoint_id] = breakpoint
         return breakpoint.to_dict()
 
     def list(self) -> list[dict]:
-        return [breakpoint.to_dict() for breakpoint in self._breakpoints.values()]
+        return [breakpoint.to_dict() for breakpoint in self._breakpoints.values()
+                if not breakpoint.private]
 
     def has_any(self) -> bool:
         return bool(self._breakpoints)
@@ -155,6 +157,9 @@ class BreakpointManager:
         if breakpoint_id not in self._breakpoints:
             raise ValueError('breakpoint_id was not found')
         del self._breakpoints[breakpoint_id]
+
+    def contains(self, breakpoint_id: str) -> bool:
+        return breakpoint_id in self._breakpoints
 
     def check(self, segment: int, offset: int, registers: dict, skip_id: str | None = None):
         physical = ((segment << 4) + offset) & 0xfffff

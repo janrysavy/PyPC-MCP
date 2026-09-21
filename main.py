@@ -110,6 +110,8 @@ try:
         'snapshot_number': 0, 'snapshots': {},
         'last_stop': None, 'skip_breakpoint_id': None,
         'breakpoints_active': False,
+        'next_operation': 1, 'operations': {}, 'active_operation': None,
+        'run_until_id': None,
     }
     breakpoints = debugbreakpoints.BreakpointManager()
 
@@ -172,7 +174,34 @@ try:
     def rpc_last_stop(kind, **details):
         stop = {'kind': kind, **details, 'registers': rpc_registers()}
         control['last_stop'] = stop
+        operation = control['active_operation']
+        if operation is not None:
+            operation['done'] = True
+            operation['stop_reason'] = stop
+            control['active_operation'] = None
         return stop
+
+    def rpc_start_operation(kind):
+        if control['active_operation'] is not None:
+            raise ValueError('an execution operation is already running')
+        operation_id = f'op-{control["next_operation"]}'
+        control['next_operation'] += 1
+        operation = {'operation_id': operation_id, 'kind': kind, 'done': False}
+        control['operations'][operation_id] = operation
+        while len(control['operations']) > 256:
+            oldest_id, oldest = next(iter(control['operations'].items()))
+            if not oldest['done']:
+                break
+            del control['operations'][oldest_id]
+        control['active_operation'] = operation
+        return operation
+
+    def rpc_clear_run_until():
+        predicate_id = control['run_until_id']
+        if predicate_id is not None and breakpoints.contains(predicate_id):
+            breakpoints.delete(predicate_id)
+        control['run_until_id'] = None
+        control['breakpoints_active'] = breakpoints.has_any()
 
     register_access = {
         'ax': (state.GetAX, state.SetAX), 'bx': (state.GetBX, state.SetBX),
@@ -237,7 +266,8 @@ try:
                     'memory.read', 'memory.write', 'video.text', 'video.snapshot',
                     'video.snapshot.read', 'io.read', 'input.keyboard',
                     'keyboard.scancode', 'input.state', 'execution.pause',
-                    'execution.continue', 'execution.go', 'execution.step',
+                    'execution.continue', 'execution.go', 'execution.run_until',
+                    'execution.wait', 'execution.step',
                     'breakpoints.create', 'breakpoints.list', 'breakpoints.delete',
                 ],
             }
@@ -435,7 +465,25 @@ try:
             control['breakpoints_active'] = breakpoints.has_any()
             return {'breakpoint_id': breakpoint_id, 'deleted': True}
 
+        if method == 'execution.wait':
+            operation_id = params.get('operation_id')
+            if not isinstance(operation_id, str):
+                raise ValueError('operation_id is required')
+            timeout_ms = rpc_number(params.get('timeout_ms', 0), 'timeout_ms')
+            if timeout_ms < 0 or timeout_ms > 60000:
+                raise ValueError('timeout_ms must be 0..60000')
+            operation = control['operations'].get(operation_id)
+            if operation is None:
+                raise ValueError('operation_id was not found')
+            if not operation['done']:
+                return {'running': True}
+            return {
+                'state': 'stopped',
+                'stop_reason': operation['stop_reason'],
+            }
+
         if method == 'execution.pause':
+            rpc_clear_run_until()
             control['paused'] = True
             control['step'] = False
             control['skip_breakpoint_id'] = None
@@ -443,13 +491,47 @@ try:
             return {'paused': True, **rpc_registers()}
 
         if method in ('execution.continue', 'execution.go'):
+            operation = rpc_start_operation('continue')
             control['paused'] = False
             control['step'] = False
             if (control['last_stop'] and
                     control['last_stop'].get('kind') == 'breakpoint'):
                 control['skip_breakpoint_id'] = control['last_stop'].get('breakpoint_id')
             control['last_stop'] = None
-            return {'paused': False, **rpc_registers()}
+            return {
+                'operation_id': operation['operation_id'], 'state': 'running',
+                'paused': False, **rpc_registers(),
+            }
+
+        if method == 'execution.run_until':
+            rpc_require_paused()
+            if 'max_emulated_ns' in params:
+                raise ValueError('max_emulated_ns is not supported by this emulator')
+            predicate = params.get('predicate')
+            if not isinstance(predicate, dict):
+                raise ValueError('predicate must be an object')
+            if predicate.get('once', False):
+                raise ValueError('run_until predicates are always one-shot')
+            predicate_params = dict(predicate)
+            predicate_params['once'] = True
+            predicate_result = breakpoints.create(
+                predicate_params, id_prefix='until', private=True)
+            try:
+                operation = rpc_start_operation('run_until')
+            except Exception:
+                breakpoints.delete(predicate_result['breakpoint_id'])
+                raise
+            control['run_until_id'] = predicate_result['breakpoint_id']
+            control['breakpoints_active'] = True
+            control['paused'] = False
+            control['step'] = False
+            control['skip_breakpoint_id'] = None
+            control['last_stop'] = None
+            return {
+                'operation_id': operation['operation_id'],
+                'predicate_id': predicate_result['breakpoint_id'],
+                'state': 'running',
+            }
 
         if method == 'execution.step':
             mode = params.get('mode', 'into')
@@ -457,6 +539,7 @@ try:
                 raise ValueError('execution.step supports mode=into only')
             if not control['paused']:
                 raise ValueError('execution.step requires a paused emulator')
+            rpc_clear_run_until()
             control['step'] = True
             control['paused'] = False
             if (control['last_stop'] and
@@ -486,9 +569,17 @@ try:
             if breakpoint is not None:
                 control['paused'] = True
                 control['step'] = False
-                rpc_last_stop(
-                    'breakpoint', breakpoint_id=breakpoint['breakpoint_id'],
-                    address=breakpoint['address'], hit_count=breakpoint['hit_count'])
+                is_run_until = breakpoint['breakpoint_id'] == control['run_until_id']
+                if control['run_until_id'] is not None:
+                    rpc_clear_run_until()
+                details = {
+                    'breakpoint_id': breakpoint['breakpoint_id'],
+                    'address': breakpoint['address'],
+                    'hit_count': breakpoint['hit_count'],
+                }
+                if is_run_until:
+                    details['predicate_id'] = breakpoint['breakpoint_id']
+                rpc_last_stop('run_until' if is_run_until else 'breakpoint', **details)
                 continue
         # print(f'{state.GetCS():04x}:{state.GetIP():04x} {GetRegisters(state)}')
         rc = p.Tick()
