@@ -32,9 +32,23 @@ class VGA(cga.CGA):
         self._graphics[6] = 0x0c  # A0000 graphics-memory aperture
         self._graphics_reg = 0
         self._attributes = [0] * 0x15
+        self._attributes[:16] = range(16)
         self._attributes[0x10] = 0x08  # blink enabled, 16-color text
+        self._attributes[0x14] = 0x00  # color-select register
         self._attribute_reg = 0
         self._attribute_flipflop = False
+        # VGA DAC components are six bits wide. Keep the public palette in
+        # the BGR tuple order used by MDA, but retain the DAC's RGB ordering
+        # for port reads and writes.
+        self._palette.extend([(0, 0, 0)] * (256 - len(self._palette)))
+        self._dac = []
+        for blue, green, red in self._palette:
+            self._dac.append((red // 4, green // 4, blue // 4))
+        self._dac_write_index = 0
+        self._dac_write_component = 0
+        self._dac_read_index = 0
+        self._dac_read_component = 0
+        self._dac_pixel_mask = 0xff
         self._misc_output = 0x67  # color display, VGA clock selection
         self._blink_phase = True
         self._cursor_phase = True
@@ -110,6 +124,14 @@ class VGA(cga.CGA):
         return (attributes & 0x0f, background,
                 blink_enabled and bool(attributes & 0x80))
 
+    def _text_palette_color(self, color):
+        palette_index = self._attributes[color & 0x0f] & 0x3f
+        return self._palette[palette_index]
+
+    def _update_dac_color(self, index):
+        red, green, blue = self._dac[index]
+        self._palette[index] = (blue * 4, green * 4, red * 4)
+
     @override
     def ReadByte(self, offset: int) -> int:
         if self._ram_offset <= offset < self._ram_offset + len(self._ram):
@@ -153,6 +175,19 @@ class VGA(cga.CGA):
             return self._attributes[index] if index < len(self._attributes) else 0xff
         if port == 0x3c2:
             return 0
+        if port == 0x3c6:
+            return self._dac_pixel_mask
+        if port == 0x3c7:
+            return self._dac_read_index
+        if port == 0x3c8:
+            return self._dac_write_index
+        if port == 0x3c9:
+            red, green, blue = self._dac[self._dac_read_index]
+            component = (red, green, blue)[self._dac_read_component]
+            self._dac_read_component = (self._dac_read_component + 1) % 3
+            if self._dac_read_component == 0:
+                self._dac_read_index = (self._dac_read_index + 1) & 0xff
+            return component
         if port == 0x3cc:
             return self._misc_output
         if port == 0x3c5:
@@ -182,6 +217,27 @@ class VGA(cga.CGA):
             return False
         if port == 0x3c2:
             self._misc_output = value
+            return False
+        if port == 0x3c6:
+            self._dac_pixel_mask = value & 0xff
+            return False
+        if port == 0x3c7:
+            self._dac_read_index = value
+            self._dac_read_component = 0
+            return False
+        if port == 0x3c8:
+            self._dac_write_index = value
+            self._dac_write_component = 0
+            return False
+        if port == 0x3c9:
+            index = self._dac_write_index
+            components = list(self._dac[index])
+            components[self._dac_write_component] = value & 0x3f
+            self._dac[index] = tuple(components)
+            self._update_dac_color(index)
+            self._dac_write_component = (self._dac_write_component + 1) % 3
+            if self._dac_write_component == 0:
+                self._dac_write_index = (self._dac_write_index + 1) & 0xff
             return False
         if port == 0x3c4:
             self._sequencer_reg = value & 0x1f
@@ -222,8 +278,8 @@ class VGA(cga.CGA):
                     pixel_offset = ((y * 16 + py) * 640 +
                                     x * 8 * pixel_width) * 4
                     for glyph_x in range(8):
-                        palette = self._palette[
-                            foreground if line & (0x80 >> glyph_x) else background]
+                        palette = self._text_palette_color(
+                            foreground if line & (0x80 >> glyph_x) else background)
                         for repeat_x in range(pixel_width):
                             index = pixel_offset + (glyph_x * pixel_width + repeat_x) * 4
                             self._pixels[index + 0] = palette[0]
@@ -238,7 +294,7 @@ class VGA(cga.CGA):
                                         x * 8 * pixel_width) * 4
                         for glyph_x in range(8 * pixel_width):
                             index = pixel_offset + glyph_x * 4
-                            palette = self._palette[foreground]
+                            palette = self._text_palette_color(foreground)
                             self._pixels[index + 0] = palette[0]
                             self._pixels[index + 1] = palette[1]
                             self._pixels[index + 2] = palette[2]

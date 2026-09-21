@@ -43,6 +43,23 @@ class VGATextTests(unittest.TestCase):
         self.video.IO_Write(0x3c0, 0x1f)
         self.assertEqual(self.video.IO_Read(0x3c1), 0xff)
 
+    def test_dac_palette_write_and_readback(self):
+        self.video.IO_Write(0x3c8, 4)
+        self.video.IO_Write(0x3c9, 0x3f)
+        self.video.IO_Write(0x3c9, 0x20)
+        self.video.IO_Write(0x3c9, 0x10)
+        self.assertEqual(self.video._palette[4], (64, 128, 252))
+
+        self.video.IO_Write(0x3c7, 4)
+        self.assertEqual([self.video.IO_Read(0x3c9) for _ in range(3)],
+                         [0x3f, 0x20, 0x10])
+
+    def test_attribute_palette_maps_text_colors(self):
+        self.video.IO_Read(0x3da)
+        self.video.IO_Write(0x3c0, 1)
+        self.video.IO_Write(0x3c0, 4)
+        self.assertEqual(self.video._text_palette_color(1), self.video._palette[4])
+
     def test_custom_plane_two_font_is_rendered(self):
         self.video.WriteByte(0xb8000, ord('A'))
         self.video.WriteByte(0xb8001, 0x1f)
