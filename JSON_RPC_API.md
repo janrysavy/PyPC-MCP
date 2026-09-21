@@ -55,6 +55,7 @@ Numbers may be JSON integers or strings accepted by Python `int(value, 0)`, such
 | `video.snapshot` | Capture immutable CGA VRAM/text bytes. |
 | `video.snapshot.read` | Read a bounded component from a retained video snapshot. |
 | `io.read` | Read one byte from an emulated I/O port. |
+| `io.write` | Write one byte to an emulated I/O port while paused. |
 | `input.keyboard` | Queue XT keyboard make/break scan codes. |
 | `keyboard.scancode` | Single-event alias of `input.keyboard`. |
 | `input.state` | Read currently pressed XT scan codes. |
@@ -92,7 +93,7 @@ Result:
   "methods":["agent.capabilities","emulator.info","state.get_registers",
     "state.get","state.set_registers","session.status","memory.read",
     "memory.write","video.text","video.snapshot","video.snapshot.read",
-    "io.read","input.keyboard","keyboard.scancode","input.state",
+    "io.read","io.write","input.keyboard","keyboard.scancode","input.state",
     "execution.pause","execution.continue","execution.go",
     "execution.run_until","execution.wait","execution.step",
     "breakpoints.create","breakpoints.list","breakpoints.delete"]
@@ -360,8 +361,22 @@ Parameters:
 ```
 
 The read uses the same emulated I/O dispatch as an 8088 `IN` byte operation. It may
-have device-specific read side effects. I/O writes are deliberately not exposed
-by this first version.
+have device-specific read side effects. Use `io.write` for explicit paused-state
+mutation.
+
+## `io.write`
+
+Writes one byte through the same emulated I/O dispatch as an 8088 `OUT` byte
+operation. The emulator must be paused because device writes can change hardware
+state immediately. Parameters are:
+
+```json
+{"port":"0x3D8","value":"0x09"}
+```
+
+The result reports whether a registered device handled the port. Unhandled ports
+are still passed through the emulator's normal `OUT` behavior and report
+`handled:false`.
 
 ## `input.keyboard`
 
@@ -571,6 +586,7 @@ API, classified for this PyPC transport:
 | `video.snapshot.read` | Implemented (`vram`, `text`) | Bounded retained-component reads. |
 | `memory.read` | Implemented | Bus-backed 1 MiB reads. |
 | `memory.write` | Implemented | Paused, SHA-guarded bus writes. |
+| `io.write` | Implemented | Paused byte write through the emulated I/O bus. |
 | `breakpoints.create` | Implemented (execution subset) | Pre-instruction execution breakpoints with register conditions and hit filters. |
 | `breakpoints.list/delete` | Implemented (execution subset) | Lists or removes normalized execution breakpoints. |
 | `debug.output.read` | Deferred | No bounded diagnostic-output ring. |

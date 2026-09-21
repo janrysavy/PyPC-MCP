@@ -425,6 +425,21 @@ try:
             return {'port': port, 'value': p._io.In(port, False),
                     'state_revision': control['revision']}
 
+        if method == 'io.write':
+            rpc_require_paused()
+            port = rpc_number(params.get('port'), 'port')
+            value = rpc_number(params.get('value'), 'value')
+            if port < 0 or port > 0xffff:
+                raise ValueError('port must be a 16-bit number')
+            if value < 0 or value > 0xff:
+                raise ValueError('value must be an 8-bit number')
+            handled = p._io.Out(port, value, False)
+            control['revision'] += 1
+            return {
+                'port': port, 'value': value, 'handled': bool(handled),
+                'state_revision': control['revision'],
+            }
+
         if method in ('input.keyboard', 'keyboard.scancode'):
             events = params.get('events')
             if events is None:
