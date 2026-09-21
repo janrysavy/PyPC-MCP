@@ -379,7 +379,7 @@ try:
                     'agent.capabilities', 'emulator.info', 'state.get_registers',
                     'state.get', 'state.set_registers', 'session.status',
                     'memory.read', 'memory.write', 'video.text', 'video.snapshot',
-                    'video.snapshot.read', 'io.read', 'input.keyboard',
+                    'video.snapshot.read', 'io.read', 'io.write', 'input.keyboard',
                     'keyboard.scancode', 'input.state', 'execution.pause',
                     'execution.continue', 'execution.go', 'execution.run_until',
                     'execution.wait', 'execution.step',

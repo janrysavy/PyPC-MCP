@@ -59,18 +59,21 @@ Numbers may be JSON integers or strings accepted by Python `int(value, 0)`, such
 | `input.keyboard` | Queue XT keyboard make/break scan codes. |
 | `keyboard.scancode` | Single-event alias of `input.keyboard`. |
 | `input.state` | Read currently pressed XT scan codes. |
-| `breakpoints.create` | Create an execution breakpoint with optional register condition and hit filter. |
-| `breakpoints.list` | List active execution breakpoints and hit counts. |
-| `breakpoints.delete` | Delete an execution breakpoint. |
+| `breakpoints.create` | Create an execution, memory-access, or software-interrupt breakpoint. |
+| `breakpoints.list` | List active breakpoints and hit counts. |
+| `breakpoints.delete` | Delete a breakpoint. |
 | `execution.pause` | Stop at the next instruction boundary. |
 | `execution.continue` | Resume execution and return an operation id. |
 | `execution.go` | Alias of `execution.continue`. |
-| `execution.run_until` | Resume execution until an execution predicate matches. |
+| `execution.run_until` | Resume execution until a predicate or guest-time limit matches. |
 | `execution.wait` | Poll a continue or run-until operation. |
 | `execution.step` | Execute exactly one instruction, then pause. |
 | `trace.start` | Start a bounded CPU instruction trace while paused. |
 | `trace.read` | Page retained CPU trace events. |
 | `trace.stop` | Stop a CPU trace and report its retained event count. |
+| `hardware.trace.start` | Start a bounded port-I/O and/or PIC IRQ trace. |
+| `hardware.trace.read` | Page retained hardware trace events. |
+| `hardware.trace.stop` | Stop hardware tracing without discarding retained events. |
 
 ## `agent.capabilities`
 
@@ -148,11 +151,12 @@ Result:
 }
 ```
 
-Register values and `clock` are unsigned integers. `state_revision` increments
-after each executed instruction; it identifies the snapshot boundary at which the
-read was made. Unlike the full DOSBox-X service, PyPC permits this read while the
-CPU is running because the request is executed synchronously at an instruction
-boundary.
+Register values and `clock` are unsigned integers. `state_revision` advances after
+each executed instruction and after a successful paused-state mutation through
+`state.set_registers`, `memory.write`, or `io.write`. It identifies the snapshot
+boundary at which the read was made. Unlike the full DOSBox-X service, PyPC permits
+this read while the CPU is running because the request is executed synchronously at
+an instruction boundary.
 
 ## `state.get`
 
@@ -381,7 +385,11 @@ state immediately. Parameters are:
 
 The result reports whether a registered device handled the port. Unhandled ports
 are still passed through the emulator's normal `OUT` behavior and report
-`handled:false`.
+`handled:false`:
+
+```json
+{"port":984,"value":9,"handled":true,"state_revision":12346}
+```
 
 ## `input.keyboard`
 
