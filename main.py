@@ -331,6 +331,13 @@ try:
         if not control['paused']:
             raise ValueError('target must be paused for this operation')
 
+    def rpc_finish_step(memory_stop, interrupt_stop):
+        """Consume a pending single-step without hiding a stronger stop reason."""
+        if not control['step']:
+            return False
+        control['step'] = False
+        return memory_stop is None and interrupt_stop is None
+
     def rpc_hash(data):
         return hashlib.sha256(data).hexdigest()
 
@@ -853,8 +860,7 @@ try:
             control['trace_event'] = None
             control['trace_active'] = trace.active
             rpc_refresh_instruction_hooks()
-        if control['step']:
-            control['step'] = False
+        if rpc_finish_step(memory_stop, interrupt_stop):
             control['paused'] = True
             rpc_last_stop('step')
         cur_cycles = state.GetClock()
