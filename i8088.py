@@ -1845,35 +1845,43 @@ class i8088:
             self._state.SetFlagC(False)
             self._state.SetFlagO(False)
 
-            # IDIV
+            # IDIV truncates toward zero; Python // instead rounds down.
+            # The dividend is signed AX (byte form) or signed DX:AX (word).
+            bits = 16 if word else 8
+            mask = (1 << bits) - 1
             if word:
-                dx_ax = (self._state.GetDX() << 16) | self._state.GetAX()
-                r1s = self.ToSigned16(r1)
-
-                if r1s == 0 or dx_ax // r1s > 0x7fffffff or dx_ax // r1s < -0x80000000:
-                    self._state.SetZSPFlags(self._state.GetAH())
-                    self._state.SetFlagA(False)
-                    self.InvokeInterrupt(self._state._ip, 0x00, False)  # divide by zero or divisor too small
-                else:
-                    if negate:
-                        self._state.SetAX((-(dx_ax // r1s)) & 0xffff)
-                    else:
-                        self._state.SetAX((dx_ax // r1s) & 0xffff)
-                    self._state.SetDX((dx_ax % r1s) & 0xffff)
+                dividend = (self._state.GetDX() << 16) | self._state.GetAX()
+                if dividend & 0x80000000:
+                    dividend -= 0x100000000
+                divisor = self.ToSigned16(r1)
             else:
-                ax = self.ToSigned16(self._state.GetAX())
-                r1s = self.ToSigned8(r1)
+                dividend = self.ToSigned16(self._state.GetAX())
+                divisor = self.ToSigned8(r1)
 
-                if r1s == 0 or ax // r1s > 0x7fff or ax // r1s < -0x8000:
-                    self._state.SetZSPFlags(self._state.GetAH())
-                    self._state.SetFlagA(False)
-                    self.InvokeInterrupt(self._state._ip, 0x00, False)  # divide by zero or divisor too small
+            quotient = 0
+            if divisor:
+                quotient = abs(dividend) // abs(divisor)
+                if (dividend < 0) != (divisor < 0):
+                    quotient = -quotient
+
+            # The 8086/8088 also traps on -128/-32768 quotients (unlike
+            # later x86 CPUs). Keep the existing post-instruction INT 0 IP.
+            if not divisor or abs(quotient) > (1 << (bits - 1)) - 1:
+                self._state.SetZSPFlags(self._state.GetAH())
+                self._state.SetFlagA(False)
+                self.InvokeInterrupt(self._state._ip, 0x00, False)
+            else:
+                remainder = dividend - quotient * divisor
+                # On 8088 a REP prefix negates only the quotient, not the
+                # remainder; do not feed that extra negation back into it.
+                if negate:
+                    quotient = -quotient
+                if word:
+                    self._state.SetAX(quotient & mask)
+                    self._state.SetDX(remainder & mask)
                 else:
-                    if negate:
-                        self._state.SetAL(-(ax // r1s) & 0xff)
-                    else:
-                        self._state.SetAL((ax // r1s) & 0xff)
-                    self._state.SetAH((ax % r1s) & 0xff)
+                    self._state.SetAL(quotient & mask)
+                    self._state.SetAH(remainder & mask)
 
         return cycle_count + 4
 
