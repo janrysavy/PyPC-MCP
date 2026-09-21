@@ -45,3 +45,4 @@ class, without a per-tick mode wrapper. The normal debugger API is unchanged.
 Mount a disposable copy of the application directory: the guest may write its
 settings and records. Live sequential A/B samples advance the program and are not
 identical-state replays; CPU ticks also include HLT and are not instruction counts.
+See `FLAGS_LIVE.md` for the live benchmark client and interpretation.
