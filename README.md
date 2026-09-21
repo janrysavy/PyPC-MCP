@@ -12,6 +12,30 @@
 > The current protocol is JSON-RPC 2.0 over a local TCP socket at
 > `127.0.0.1:2301` using JSON-lines framing; despite the repository name, it is
 > not yet a Model Context Protocol server.
+>
+> **Host-directory FAT16 mount:** From the repository root, pass a host
+> directory with `--host-dir`; it appears inside DOS as the guest `D:` drive.
+> The existing `C:` boot image is unchanged.
+>
+> ```shell
+> # Windows PowerShell
+> py -3.12 run_pypc.py --host-dir D:\path\to\shared-directory
+>
+> # Linux, macOS, or WSL2
+> python3 run_pypc.py --host-dir /path/to/shared-directory
+> ```
+>
+> The mount accepts DOS 8.3 names. Guest-created and modified files and
+> directories are synchronized into the selected directory and its
+> subdirectories. Symlinks, path escapes, guest deletions, and renames are not
+> supported. Host-side changes made after startup require an emulator restart.
+>
+> In DOS, select the drive with `D:` and run a program, for example:
+>
+> ```dos
+> D:
+> PROGRAM
+> ```
 
 PyPC is an IBM PC (8088) emulator written in Python.
 
