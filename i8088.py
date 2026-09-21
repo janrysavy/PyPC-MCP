@@ -13,6 +13,9 @@ class i8088:
         self._breakpoints = set()
         self._ignore_breakpoints: bool = False
         self._stop_reason: str = ''
+        self._memory_write_hook = None
+        self._memory_write_stop = None
+        self._instruction_address = None
 
         self._state: state8088.State8088 = state8088.State8088()
 
@@ -231,8 +234,15 @@ class i8088:
     def WriteMemByte(self, segment: int, offset: int, v: int):
         a = ((segment << 4) + offset) & self._MemMask
         if a < self._b._direct_ram_end:
+            old = self._b._m._m[a]
+            if self._memory_write_hook is not None and self._memory_write_stop is None:
+                self._memory_write_stop = self._memory_write_hook(
+                    a, old, v, self._instruction_address)
             self._b._m._m[a] = v
             return
+        if self._memory_write_hook is not None and self._memory_write_stop is None:
+            self._memory_write_stop = self._memory_write_hook(
+                a, None, v, self._instruction_address)
         self._state._clock += self._b.WriteByte(a, v)
 
     def WriteMemWord(self, segment: int, offset: int, v: int):
@@ -695,6 +705,10 @@ class i8088:
     def Tick(self) -> int:
         cycle_count = 0  # cycles used for an instruction
         back_from_trace = False
+        if self._memory_write_hook is not None:
+            self._instruction_address = {
+                'segment': self._state._cs, 'offset': self._state._ip,
+            }
 
         # check for interrupt
         if (self._state._flags & (1 << 9)) != 0 and self._state._inhibit_interrupts == False:
@@ -835,6 +849,16 @@ class i8088:
         rc = self._stop_reason
         self._stop_reason = ''
         return rc
+
+    def SetMemoryWriteHook(self, hook):
+        self._memory_write_hook = hook
+        if hook is None:
+            self._memory_write_stop = None
+
+    def ConsumeMemoryWriteStop(self):
+        stop = self._memory_write_stop
+        self._memory_write_stop = None
+        return stop
 
     def GetBreakpoints(self) -> set:
         return self._breakpoints

@@ -13,6 +13,7 @@ _OPERATORS = {'eq', 'ne', 'lt', 'le', 'gt', 'ge'}
 @dataclass
 class _Breakpoint:
     breakpoint_id: str
+    kind: str
     address: dict
     physical: int
     length: int
@@ -52,7 +53,7 @@ class _Breakpoint:
     def to_dict(self) -> dict:
         result = {
             'breakpoint_id': self.breakpoint_id,
-            'kind': 'execution',
+            'kind': self.kind,
             'address': dict(self.address),
             'length': self.length,
             'once': self.once,
@@ -82,8 +83,9 @@ class BreakpointManager:
         raise ValueError(f'{name} must be a number')
 
     def create(self, params: dict, id_prefix: str = 'bp', private: bool = False) -> dict:
-        if params.get('kind', 'execution') != 'execution':
-            raise ValueError('only execution breakpoints are supported')
+        kind = params.get('kind', 'execution')
+        if kind not in ('execution', 'memory_write'):
+            raise ValueError('only execution and memory_write breakpoints are supported')
 
         address = params.get('address')
         if not isinstance(address, dict):
@@ -98,24 +100,32 @@ class BreakpointManager:
                 'space': 'segmented', 'segment': segment, 'offset': offset,
             }
             physical = ((segment << 4) + offset) & 0xfffff
-        elif space in ('physical', 'linear'):
+        elif space in ('physical', 'linear') and kind == 'execution':
+            offset = self._number(address.get('offset'), 'address.offset')
+            if not 0 <= offset < 0x100000:
+                raise ValueError('linear address must be within 1 MiB')
+            normalized_address = {'space': space, 'offset': offset}
+            physical = offset
+        elif space == 'linear' and kind == 'memory_write':
             offset = self._number(address.get('offset'), 'address.offset')
             if not 0 <= offset < 0x100000:
                 raise ValueError('linear address must be within 1 MiB')
             normalized_address = {'space': space, 'offset': offset}
             physical = offset
         else:
-            raise ValueError('address.space must be physical, linear, or segmented')
+            raise ValueError('memory_write address.space must be linear or segmented')
 
         length = self._number(params.get('length', 1), 'length')
         if length != 1:
-            raise ValueError('execution breakpoint length must be 1')
+            raise ValueError('this breakpoint kind currently supports length 1 only')
         once = params.get('once', False)
         if not isinstance(once, bool):
             raise ValueError('once must be boolean')
 
         condition = params.get('condition')
         if condition is not None:
+            if kind != 'execution':
+                raise ValueError('memory_write breakpoints do not support conditions')
             if not isinstance(condition, dict):
                 raise ValueError('condition must be an object')
             register = condition.get('register')
@@ -140,7 +150,7 @@ class BreakpointManager:
         breakpoint_id = f'{id_prefix}-{self._next_id}'
         self._next_id += 1
         breakpoint = _Breakpoint(
-            breakpoint_id, normalized_address, physical, length, once, condition,
+            breakpoint_id, kind, normalized_address, physical, length, once, condition,
             {'skip': skip, 'every': every}, private,
         )
         self._breakpoints[breakpoint_id] = breakpoint
@@ -153,6 +163,14 @@ class BreakpointManager:
     def has_any(self) -> bool:
         return bool(self._breakpoints)
 
+    def has_execution(self) -> bool:
+        return any(breakpoint.kind == 'execution'
+                   for breakpoint in self._breakpoints.values())
+
+    def has_memory_write(self) -> bool:
+        return any(breakpoint.kind == 'memory_write'
+                   for breakpoint in self._breakpoints.values())
+
     def delete(self, breakpoint_id: str) -> None:
         if breakpoint_id not in self._breakpoints:
             raise ValueError('breakpoint_id was not found')
@@ -164,6 +182,8 @@ class BreakpointManager:
     def check(self, segment: int, offset: int, registers: dict, skip_id: str | None = None):
         physical = ((segment << 4) + offset) & 0xfffff
         for breakpoint in list(self._breakpoints.values()):
+            if breakpoint.kind != 'execution':
+                continue
             if breakpoint.breakpoint_id == skip_id:
                 continue
             if not breakpoint.matches_address(segment, offset, physical):
@@ -173,6 +193,19 @@ class BreakpointManager:
             if not breakpoint.selected_hit():
                 continue
             result = breakpoint.to_dict()
+            if breakpoint.once:
+                del self._breakpoints[breakpoint.breakpoint_id]
+            return result
+        return None
+
+    def check_memory_write(self, physical: int, access: dict):
+        for breakpoint in list(self._breakpoints.values()):
+            if breakpoint.kind != 'memory_write' or breakpoint.physical != physical:
+                continue
+            if not breakpoint.selected_hit():
+                continue
+            result = breakpoint.to_dict()
+            result['access'] = dict(access)
             if breakpoint.once:
                 del self._breakpoints[breakpoint.breakpoint_id]
             return result

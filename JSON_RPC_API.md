@@ -433,9 +433,10 @@ The result is the same as `input.keyboard` with `accepted:1`.
 
 ## `breakpoints.create`
 
-Creates an execution breakpoint checked before each 8088 instruction. PyPC currently
-supports `kind:"execution"` only; memory-access and interrupt breakpoints are not
-implemented. Addresses may be `physical`, `linear`, or `segmented`:
+Creates an execution breakpoint checked before each 8088 instruction, or a
+single-byte `memory_write` breakpoint checked after the instruction performs the
+write. Execution addresses may be `physical`, `linear`, or `segmented`; memory
+write addresses may be `linear` or `segmented`:
 
 ```json
 {
@@ -452,7 +453,11 @@ registers. Supported operators are `eq`, `ne`, `lt`, `le`, `gt`, and `ge`.
 `hit_count` counts condition matches; `skip` suppresses the first matches and
 `every` selects subsequent matches. A one-shot breakpoint is removed when it
 stops execution. The result is the normalized breakpoint descriptor, including
-its `breakpoint_id`.
+its `breakpoint_id`. A `memory_write` descriptor currently requires `length:1`
+and does not accept a register condition. Its stop includes `access` with the
+linear address, byte count, new value, and accessing instruction address; RAM
+writes also include `old_value`. Device-backed writes expose no old value when
+the device cannot be read without side effects.
 
 ## `breakpoints.list`
 
@@ -505,8 +510,9 @@ No parameters. Exact alias of `execution.continue`.
 
 ## `execution.run_until`
 
-Requires a paused emulator. Parameters contain one execution predicate using the
-same address, condition, and hit-filter fields as `breakpoints.create`:
+Requires a paused emulator. Parameters contain one `execution` or
+`memory_write` predicate using the same address and hit-filter fields as
+`breakpoints.create` (memory writes are single-byte and cannot use conditions):
 
 ```json
 {
@@ -626,8 +632,8 @@ API, classified for this PyPC transport:
 | `memory.read` | Implemented | Bus-backed 1 MiB reads. |
 | `memory.write` | Implemented | Paused, SHA-guarded bus writes. |
 | `io.write` | Implemented | Paused byte write through the emulated I/O bus. |
-| `breakpoints.create` | Implemented (execution subset) | Pre-instruction execution breakpoints with register conditions and hit filters. |
-| `breakpoints.list/delete` | Implemented (execution subset) | Lists or removes normalized execution breakpoints. |
+| `breakpoints.create` | Implemented (execution and memory-write subset) | Pre-instruction execution breakpoints plus single-byte exact memory-write stops; no read/access/interrupt kinds yet. |
+| `breakpoints.list/delete` | Implemented | Lists or removes normalized execution and memory-write breakpoints. |
 | `trace.start/read/stop` | Implemented (CPU subset) | Bounded instruction addresses, opcode bytes, clock intervals, and register snapshots; no memory/I/O effects yet. |
 | `debug.output.read` | Deferred | No bounded diagnostic-output ring. |
 | `debugger.execute_command` | Deferred | Deliberately no raw debugger command escape hatch. |

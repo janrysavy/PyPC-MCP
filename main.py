@@ -111,6 +111,7 @@ try:
         'snapshot_number': 0, 'snapshots': {},
         'last_stop': None, 'skip_breakpoint_id': None,
         'breakpoints_active': False,
+        'memory_watchpoints_active': False,
         'trace_active': False, 'instruction_hooks_active': False,
         'next_operation': 1, 'operations': {}, 'active_operation': None,
         'run_until_id': None,
@@ -204,12 +205,15 @@ try:
         if predicate_id is not None and breakpoints.contains(predicate_id):
             breakpoints.delete(predicate_id)
         control['run_until_id'] = None
-        control['breakpoints_active'] = breakpoints.has_any()
         rpc_refresh_instruction_hooks()
 
     def rpc_refresh_instruction_hooks():
+        control['breakpoints_active'] = breakpoints.has_execution()
+        control['memory_watchpoints_active'] = breakpoints.has_memory_write()
         control['instruction_hooks_active'] = (
             control['breakpoints_active'] or control['trace_active'])
+        p.SetMemoryWriteHook(
+            rpc_memory_write if control['memory_watchpoints_active'] else None)
 
     def rpc_trace_event():
         registers = rpc_registers()
@@ -226,6 +230,23 @@ try:
             'clock_before': registers['clock'],
             'registers_before': registers,
         }
+
+    def rpc_memory_write(physical, old, new, instruction_address):
+        if instruction_address is None:
+            return None
+        access = {
+            'address': {'space': 'linear', 'offset': physical},
+            'byte_count': 1,
+            'instruction_address': {
+                'space': 'segmented',
+                'segment': instruction_address['segment'],
+                'offset': instruction_address['offset'],
+            },
+            'new_value': new,
+        }
+        if old is not None:
+            access['old_value'] = old
+        return breakpoints.check_memory_write(physical, access)
 
     register_access = {
         'ax': (state.GetAX, state.SetAX), 'bx': (state.GetBX, state.SetBX),
@@ -491,7 +512,6 @@ try:
 
         if method == 'breakpoints.create':
             result = breakpoints.create(params)
-            control['breakpoints_active'] = True
             rpc_refresh_instruction_hooks()
             return result
 
@@ -503,7 +523,6 @@ try:
             if not isinstance(breakpoint_id, str):
                 raise ValueError('breakpoint_id is required')
             breakpoints.delete(breakpoint_id)
-            control['breakpoints_active'] = breakpoints.has_any()
             rpc_refresh_instruction_hooks()
             return {'breakpoint_id': breakpoint_id, 'deleted': True}
 
@@ -584,7 +603,6 @@ try:
                 breakpoints.delete(predicate_result['breakpoint_id'])
                 raise
             control['run_until_id'] = predicate_result['breakpoint_id']
-            control['breakpoints_active'] = True
             rpc_refresh_instruction_hooks()
             control['paused'] = False
             control['step'] = False
@@ -653,6 +671,24 @@ try:
         if rc == -1:
             break
         control['revision'] += 1
+        memory_stop = (p.ConsumeMemoryWriteStop()
+                       if control['memory_watchpoints_active'] else None)
+        if memory_stop is not None:
+            control['paused'] = True
+            is_run_until = memory_stop['breakpoint_id'] == control['run_until_id']
+            if control['run_until_id'] is not None:
+                rpc_clear_run_until()
+            details = {
+                'breakpoint_id': memory_stop['breakpoint_id'],
+                'address': memory_stop['address'],
+                'length': memory_stop['length'],
+                'hit_count': memory_stop['hit_count'],
+                'access': memory_stop['access'],
+            }
+            if is_run_until:
+                details['predicate_id'] = memory_stop['breakpoint_id']
+            rpc_last_stop('run_until' if is_run_until else 'breakpoint', **details)
+            rpc_refresh_instruction_hooks()
         if trace_before is not None:
             trace_before['clock_after'] = state.GetClock()
             trace_before['clock_delta'] = (
