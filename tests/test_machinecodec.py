@@ -1,0 +1,98 @@
+import copy
+import json
+import random
+import subprocess
+import sys
+from pathlib import Path
+
+import pytest
+import bus, i8088, i8253, i8255, keyboard, vga, xtide
+from machinecodec import capture_machine, prepare_machine
+
+
+def machine(tmp_path):
+    disk = tmp_path/'disk.img'; disk.write_bytes(bytes(4096))
+    kb = keyboard.Keyboard()
+    devices = [i8253.i8253(), kb, i8255.i8255(kb), vga.VGA(False), xtide.XTIDE([str(disk)])]
+    b = bus.Bus(1048576, devices, [])
+    cpu = i8088.i8088(b, devices, True)
+    state = cpu.GetState(); state.SetCS(0x1000); state.SetIP(0); state.SetDS(0x1000)
+    # Repeated timer reads, RAM stores and increments exercise host RNG and ticks.
+    b._m._m[0x10000:0x1000d] = bytes.fromhex('ba4000eca20002ff060202ebf6')
+    cpu._io.Out(0x43, 0x36, False); cpu._io.Out(0x40, 17, False); cpu._io.Out(0x40, 0, False)
+    kb.PushKeyboardScancode(0x1e)
+    controller = devices[4]
+    for port, value in ((0x304,1),(0x306,1),(0x308,0),(0x30a,0),(0x30c,0),(0x30e,0xc5)):
+        controller.IO_Write(port,value)
+    for value in (11,22,33): controller.IO_Write(0x300,value)
+    for _ in range(11): cpu.Tick()
+    return cpu
+
+
+def run(cpu, count=200):
+    events = []
+    cpu.SetMemoryTraceHook(lambda *args: events.append(args))
+    for _ in range(count): cpu.Tick()
+    cpu.SetMemoryTraceHook(None)
+    for index in range(509): cpu._devices[4].IO_Write(0x300,index%251)
+    return events
+
+
+def test_coordinated_continuation(tmp_path):
+    original = machine(tmp_path)
+    manifest, buffers = capture_machine(original)
+    expected_trace = run(original)
+    expected, expected_buffers = capture_machine(original)
+    restored, rng = prepare_machine(json.loads(json.dumps(manifest)), buffers, tmp_path/'restore')
+    random.setstate(rng.getstate())
+    assert run(restored) == expected_trace
+    actual, actual_buffers = capture_machine(restored)
+    assert actual == expected
+    assert actual_buffers == expected_buffers
+    assert restored._io._pic is restored._devices[6]
+    assert restored._devices[0]._i8237 is restored._io._i8237
+    assert restored._devices[1]._pic is restored._io._pic
+    assert restored._devices[2]._kb is restored._devices[1]
+
+
+@pytest.mark.parametrize('damage', ['ram','source','pit','disk','extra'])
+def test_bad_machine_never_materializes_disks(tmp_path, damage):
+    original = machine(tmp_path); before, raw = capture_machine(original)
+    bad = copy.deepcopy(before); buffers = dict(raw)
+    if damage == 'ram': buffers['ram'] = b'wrong'
+    elif damage == 'source': bad['source']['i8088.py'] = 'wrong'
+    elif damage == 'pit': bad['pit']['version'] = -1
+    elif damage == 'disk': bad['disks'][0]['image']['sha256'] = 'wrong'
+    else: buffers['unused'] = b''
+    with pytest.raises(ValueError): prepare_machine(bad, buffers, tmp_path/'restore')
+    assert not (tmp_path/'restore').exists()
+    assert capture_machine(original) == (before, raw)
+
+
+def test_fresh_process_machine_continuation(tmp_path):
+    original = machine(tmp_path)
+    before, buffers = capture_machine(original)
+    trace = run(original)
+    expected, _ = capture_machine(original)
+    payload = tmp_path/'machine.json'
+    payload.write_text(json.dumps({'before':before, 'buffers':{k:v.hex() for k,v in buffers.items()},
+                                   'expected':expected,'trace':trace}))
+    code = '''import sys,typing,json,random
+if not hasattr(typing,'override'): typing.override=lambda f:f
+from pathlib import Path
+from machinecodec import prepare_machine,capture_machine
+sys.path.insert(0,'tests')
+from test_machinecodec import run
+data=json.loads(Path(sys.argv[1]).read_text())
+cpu,rng=prepare_machine(data['before'],{k:bytes.fromhex(v) for k,v in data['buffers'].items()},sys.argv[2])
+random.setstate(rng.getstate())
+trace=run(cpu)
+assert json.loads(json.dumps(trace))==data['trace']
+actual,buffers=capture_machine(cpu)
+assert actual==data['expected']
+assert Path(cpu._devices[4]._disks[0]).read_bytes()[:3]==bytes((11,22,33))
+print('fresh-process whole-component continuation equal')
+'''
+    result=subprocess.run([sys.executable,'-c',code,str(payload),str(tmp_path/'fresh')],
+                          cwd=Path(__file__).resolve().parents[1],capture_output=True,text=True,check=True)
+    assert 'continuation equal' in result.stdout

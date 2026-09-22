@@ -1,0 +1,38 @@
+# Coordinated machine reconstruction (library stage)
+
+`machinecodec.capture_machine` composes the existing CPU, PIT/PIC, DMA,
+keyboard/PPI, video and XTIDE codecs with RAM, ROMs, disk dependencies and the
+Python RNG used by PIT noise. Source-file hashes bind the snapshot to the
+emulator implementation, independent of checkout path. The supported device
+order is the motherboard constructed by `main.py`; unknown topologies are
+refused. The caller explicitly identifies the standard VGA BIOS service hook.
+
+`prepare_machine` validates and builds a detached motherboard. CPU/device/RAM
+and disk validation precede creation of new backing-disk directories. It returns
+a CPU and a validated local RNG; it does not change the live emulator or the
+process RNG. A coordinator must exclude input and display readers, activate the
+returned RNG, install the machine atomically, and invalidate host display caches
+before resuming guest execution. Disk materialization failures can leave only
+new partial directories; existing sources and the live machine remain unchanged.
+
+This is not yet exposed by JSON-RPC and has no persistent bundle container.
+Do not claim usable gameplay checkpoints or a restart of the running Pyro
+session from these library tests. The live process still runs its prior code.
+Debugger breakpoints/traces/operation identifiers and host network connections
+are not guest state and are not reconstructed by this module.
+
+## Evidence
+
+Seven tests in `tests/test_machinecodec.py` pass on Windows Python 3.11 with
+the repository compatibility shim. A synthetic 8088 program repeatedly reads
+PIT ports and updates RAM while devices tick. The captured machine also has
+queued keyboard input and a partially supplied XTIDE write. After reconstruction,
+200 instructions produce the same memory trace and all captured state/buffer
+hashes; completing the pending disk write produces the same bytes.
+
+The same comparison passes in a fresh Python subprocess. Five negative controls
+damage RAM, source identity, PIT schema, disk identity or buffer inventory; all
+are refused before creating the destination directory, and the source machine
+capture remains identical. These tests establish this scenario, not exhaustive
+instruction/device/gameplay parity. Actual Pyro restart, persistent bundle I/O,
+RPC integration, atomic installation and independent review remain required.
