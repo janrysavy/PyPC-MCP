@@ -485,7 +485,7 @@ class VNCServer:
             self.VNCSendVersion(session.stream)
             self.VNCSecurityHandshake(session.stream)
             self.VNCClientServerInit(session.stream)
-            session.frame_requested = True
+            # RFB updates are demand-driven; wait for the first client request.
 
             last_frame_time = 0.0
             frame_interval = 1.0 / 20.0
