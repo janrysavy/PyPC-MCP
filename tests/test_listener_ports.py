@@ -1,4 +1,4 @@
-"""Exercise CLI validation without starting the machine or listeners."""
+"""Exercise CLI validation and real listener bindings in an isolated process."""
 import argparse
 import ast
 import json
@@ -41,6 +41,17 @@ class ListenerPortTests(unittest.TestCase):
             self.assertEqual(error.exception.code, 2)
 
     def test_process_binds_selected_ports_and_advertises_rpc_endpoint(self):
+        # Another process can claim a reserved port after it is released.
+        # Retry connection/bind failures with a fresh set; assertions are not retried.
+        for attempt in range(3):
+            try:
+                self.exercise_process()
+                return
+            except OSError:
+                if attempt == 2:
+                    raise
+
+    def exercise_process(self):
         root = Path(__file__).resolve().parents[1]
         # Reserve distinct free ports together; release immediately before launch.
         reservations = [socket.socket() for _ in range(3)]
@@ -51,7 +62,9 @@ class ListenerPortTests(unittest.TestCase):
         finally:
             for sock in reservations:
                 sock.close()
-        with tempfile.TemporaryDirectory() as directory:
+        temporary_root = root / '.test-tmp'
+        temporary_root.mkdir(exist_ok=True)
+        with tempfile.TemporaryDirectory(dir=temporary_root) as directory:
             scratch = Path(directory)
             shutil.copy2(root / 'harddisk.img', scratch / 'harddisk.img')
             shutil.copytree(root / 'roms', scratch / 'roms')
@@ -76,16 +89,27 @@ class ListenerPortTests(unittest.TestCase):
                             except OSError:
                                 if process.poll() is not None or time.monotonic() >= deadline:
                                     log.seek(0)
-                                    self.fail(log.read().decode(errors='replace'))
+                                    raise ConnectionError(log.read().decode(errors='replace'))
                                 time.sleep(0.02)
                     with socket.create_connection(('127.0.0.1', ports[0]), timeout=3) as client:
                         client.sendall(b'{"jsonrpc":"2.0","id":1,"method":"agent.capabilities"}\n')
                         with client.makefile('rb') as stream:
                             reply = json.loads(stream.readline())
                     self.assertEqual(reply['result']['endpoint'], f'127.0.0.1:{ports[0]}')
+                    # Current server greetings identify which listener owns a port;
+                    # this does not assert complete protocol conformance.
+                    for port, banner in ((ports[1], b'\xff\xf4\x25'),
+                                         (ports[2], b'RFB 003.008\n')):
+                        with socket.create_connection(('127.0.0.1', port), timeout=3) as client:
+                            with client.makefile('rb') as stream:
+                                self.assertEqual(stream.read(len(banner)), banner)
                 finally:
                     process.terminate()
-                    process.wait(timeout=5)
+                    try:
+                        process.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        process.kill()
+                        process.wait(timeout=5)
 
 
 if __name__ == '__main__':
