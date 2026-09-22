@@ -49,6 +49,7 @@ def install_machine(live, prepared, rng):
         video = live._devices[3]
         live.SetInterruptServiceHook(VGAInterruptService(video))
     live._stop_reason = ''
+    live._ignore_breakpoints = False
     live._memory_access_stop = None
     live._interrupt_stop = None
     live._instruction_address = None

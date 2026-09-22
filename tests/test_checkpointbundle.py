@@ -20,6 +20,21 @@ def test_real_machine_bundle_roundtrip(tmp_path):
     with pytest.raises(ValueError, match='file hash'): read_bundle(target, '0'*64)
 
 
+def test_write_failure_never_publishes_partial_archive(tmp_path, monkeypatch):
+    manifest, buffers = capture_machine(machine(tmp_path))
+    original = zipfile.ZipFile.writestr
+    def fail_data(self, name, data, *args, **kwargs):
+        if name != 'manifest.json':
+            raise OSError('simulated disk full')
+        return original(self, name, data, *args, **kwargs)
+    monkeypatch.setattr(zipfile.ZipFile, 'writestr', fail_data)
+    target = tmp_path/'machine.pypc'
+    with pytest.raises(OSError, match='disk full'):
+        write_bundle(target, manifest, buffers)
+    assert not target.exists()
+    assert not list(tmp_path.glob('*.pending'))
+
+
 @pytest.mark.parametrize('damage', ['extra','traversal','duplicate','data','jsonkey'])
 def test_invalid_archive_refused(tmp_path, damage):
     data = b'abc'

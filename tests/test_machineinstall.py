@@ -16,8 +16,10 @@ def test_install_preserves_live_references_and_replays(tmp_path):
     expected_trace = run(cpu)
     expected = capture_machine(cpu)
     prepared, rng = prepare_machine(*original, tmp_path/'restored')
+    cpu.SetIgnoreBreakpoints()
     with lock:
         install_machine(cpu, prepared, rng)
+    assert not cpu._ignore_breakpoints
     assert cpu.GetState() is state
     assert tuple(cpu._devices) == devices
     assert cpu._devices[1]._state_lock is lock

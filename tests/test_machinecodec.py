@@ -110,6 +110,14 @@ def test_reference_disk_machine(tmp_path):
     assert capture_machine(restored, disk_mode='reference') == (manifest, buffers)
 
 
+@pytest.mark.parametrize('references', [{1:'unused.img'}, {0:''}, {0:'unused.img'}, {True:'unused.img'}])
+def test_invalid_references_refused_before_disk_creation(tmp_path, references):
+    cpu = machine(tmp_path)
+    with pytest.raises(ValueError, match='references'):
+        prepare_machine(*capture_machine(cpu), tmp_path/'restored', references)
+    assert not (tmp_path/'restored').exists()
+
+
 @pytest.mark.parametrize('damage', ['ram','source','pit','disk','extra'])
 def test_bad_machine_never_materializes_disks(tmp_path, damage):
     original = machine(tmp_path); before, raw = capture_machine(original)

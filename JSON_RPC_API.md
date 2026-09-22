@@ -770,3 +770,10 @@ Bundles have a 1 GiB total uncompressed data limit and a 4 MiB JSON limit.
 Malformed bundles/hashes are rejected before live installation. Disk I/O failure
 can leave a partial new output directory; the live machine stays unchanged.
 Host ACLs, permissions, timestamps and external applications are not captured.
+
+Archive publication uses an atomic hard link from a completed temporary file;
+export destinations must support hard links (NTFS/ext4). A failed archive write
+leaves no published archive. Disk materialization remains a separate operation
+that may leave a partial new directory. VNC is asynchronous: an old in-flight
+frame can arrive after the RPC reply; the subsequent epoch refresh sends a full
+frame. RPC completion is not a cross-connection network delivery barrier.

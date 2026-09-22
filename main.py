@@ -480,7 +480,7 @@ try:
                 raise ValueError('disk_root must be a new host directory path')
             references = params.get('references', {})
             if (not isinstance(references, dict)
-                    or any(k not in ('0', '1') or not isinstance(v, str) for k,v in references.items())):
+                    or any(k not in ('0', '1') or not isinstance(v, str) or not v for k,v in references.items())):
                 raise ValueError('references must map disk indices 0/1 to host paths')
             machine_snapshots.restore(path, disk_root, params.get('sha256'),
                                       {int(k):v for k,v in references.items()})

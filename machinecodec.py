@@ -26,10 +26,13 @@ from videocodec import dump_video_state, load_video_state
 from xtidecodec import dump_xtide_state, load_xtide_state
 
 
+_SOURCE_IDENTITY = {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
+                    for p in sorted(Path(__file__).parent.glob('*.py'))}
+
+
 def source_identity():
-    """Bind executable Python sources, independent of checkout path or git state."""
-    return {p.name: hashlib.sha256(p.read_bytes()).hexdigest()
-            for p in sorted(Path(__file__).parent.glob('*.py'))}
+    """Bind startup sources; later disk edits must not relabel a running process."""
+    return dict(_SOURCE_IDENTITY)
 
 
 def _blob(data):
@@ -123,6 +126,13 @@ def prepare_machine(manifest, buffers, disk_root, references=None):
     if type(manifest['disks']) is not list or not 0 <= len(manifest['disks']) <= 2:
         raise ValueError('invalid disk inventory')
     references = {} if references is None else references
+    if (type(references) is not dict
+            or any(type(k) is not int or not 0 <= k < len(manifest['disks'])
+                   or type(v) is not str or not v
+                   or manifest['disks'][k].get('kind') != 'file'
+                   or manifest['disks'][k].get('mode') != 'reference'
+                   for k,v in references.items())):
+        raise ValueError('unused or invalid disk references')
     payloads = []
     for index, disk in enumerate(manifest['disks']):
         prefix = f'disk{index}/'

@@ -79,3 +79,31 @@ stale host debugger operations/traces/video snapshots. Four production-handler
 tests pass, covering replay equality, register bindings, VNC invalidation and
 running/revision/hash rejection. Live socket and Pyro restart evidence is still
 pending; earlier library-only wording above describes the earlier stage.
+
+## Review hardening and live evidence
+
+The actual Pyro run at head74b4b3b now has a successful fresh-process replay:
+3,319 instructions /47,708 emulated clocks, from10E6:6470 to2420:085F.
+Every manifest field and binary buffer matched, including CPU, RAM, host RNG,
+ports/timers, keyboard, video, both disks and ROMs. Evidence is retained in the
+parent Pyro repository under `re/harness/traces/pypc-snapshot-20260922`.
+The first repeat received eight external viewer scan codes and differed only
+in the keyboard queue; with keyboard forwarding disabled, all state matched.
+This establishes that bounded interval, not exhaustive game-mechanics parity.
+
+Review corrections now hold keyboard/display locks throughout preparation,
+reject unused/empty reference paths, clear the CPU breakpoint-skip flag, and
+publish completed archives atomically without overwriting. Archive destinations
+must support hard links (NTFS/ext4); write failure leaves no published archive.
+Source identity is captured when the module loads: later source-file edits must
+not relabel an already-running emulator. Telnet refresh accepts clock rewind and
+uses the display epoch so equal-clock restores also repaint.29 focused tests
+pass, including delayed input, failed archive writes and Telnet rewind.
+
+Two review concerns are contract limitations, not silent equivalence claims:
+failed disk materialization may leave a partial *new* directory, as documented;
+existing disks/live state are unchanged. VNC network writes happen outside the
+render lock, so a previously sampled frame can arrive after an import reply.
+The new epoch forces a full subsequent frame; RPC completion is not a barrier
+on a separate network connection. No network session or packet queue is saved.
+The hardened head still requires its own full suite, CI and review confirmation.

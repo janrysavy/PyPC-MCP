@@ -6,7 +6,9 @@ and component semantics are checked by prepare_machine before installation.
 import hashlib
 import io
 import json
+import os
 from pathlib import Path
+import tempfile
 import zipfile
 
 MAX_MANIFEST = 4*1024*1024
@@ -41,12 +43,25 @@ def write_bundle(path, manifest, buffers):
     encoded = json.dumps(manifest, sort_keys=True, separators=(',', ':'), allow_nan=False).encode('utf-8')
     if len(encoded) > MAX_MANIFEST:
         raise ValueError('manifest exceeds size limit')
-    with Path(path).open('xb') as output:
-        with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=1) as bundle:
-            bundle.writestr('manifest.json', encoded)
-            for name, data in sorted(buffers.items()):
-                bundle.writestr('buffers/'+name, data)
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+    path = Path(path)
+    pending = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=path.parent, prefix='.pypc-', suffix='.pending', delete=False) as output:
+            pending = Path(output.name)
+            with zipfile.ZipFile(output, 'w', compression=zipfile.ZIP_DEFLATED, compresslevel=1) as bundle:
+                bundle.writestr('manifest.json', encoded)
+                for name, data in sorted(buffers.items()):
+                    bundle.writestr('buffers/'+name, data)
+            output.flush()
+            os.fsync(output.fileno())
+        digest = hashlib.sha256(pending.read_bytes()).hexdigest()
+        # Atomic no-overwrite publication, including on POSIX where rename would
+        # otherwise overwrite. Requires a filesystem supporting hard links.
+        os.link(pending, path)
+        return digest
+    finally:
+        if pending is not None:
+            pending.unlink(missing_ok=True)
 
 
 def read_bundle(path, expected_sha256=None):

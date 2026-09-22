@@ -172,12 +172,12 @@ class Telnet:
 
         undo_code = None
         p_send = 0.0
-        last_mda = -1
+        last_mda = None
         kb = False
         while True:
             now = time.time()
             mda_clock = self._scr.GetClock()
-            if kb == False and mda_clock > last_mda:
+            if kb == False and mda_clock != last_mda:
                 last_mda = mda_clock
                 p_send = now
                 self.PushScreen(s)

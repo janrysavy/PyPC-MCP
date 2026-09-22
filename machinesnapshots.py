@@ -17,6 +17,10 @@ class LockedDisplay:
             getter = getattr(self.display, 'GetFrameVersion', None)
             return (self.epoch, getter() if getter else object())
 
+    def GetClock(self):
+        with self.lock:
+            return (self.epoch, self.display.GetClock())
+
     def __getattr__(self, name):
         # Frontends access methods, not mutable guest arrays, through this proxy.
         method = getattr(self.display, name)
@@ -41,9 +45,9 @@ class MachineSnapshots:
         return write_bundle(path, *state)
 
     def restore(self, path, disk_root, sha256=None, references=None):
-        saved = read_bundle(path, sha256)
-        prepared, rng = prepare_machine(*saved, disk_root, references)
         with self.vnc._frame_lock, self.display.lock, self.cpu._devices[1]._state_lock:
+            saved = read_bundle(path, sha256)
+            prepared, rng = prepare_machine(*saved, disk_root, references)
             install_machine(self.cpu, prepared, rng)
             # A restored numeric guest frame version can equal a client's old
             # version even when its pixels differ. Epoch prevents that alias.

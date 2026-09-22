@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 import debughardware
 import debugtrace
+import machinesnapshots
 import vncserver
 from machinecodec import capture_machine
 from machinesnapshots import LockedDisplay, MachineSnapshots
@@ -73,3 +74,46 @@ def test_rpc_refusal_preserves_machine(tmp_path, failure):
               sha256='wrong' if failure == 'hash' else None)
     assert capture_machine(cpu) == before
     assert not (tmp_path/'restore').exists()
+
+
+def test_input_during_prepare_is_deferred_until_after_install(tmp_path, monkeypatch):
+    h, cpu, vnc = rpc_machine(tmp_path)
+    path = str(tmp_path/'saved.pypc')
+    h.rpc('machine.snapshot.export', path=path, expected_state_revision=0)
+    old_queue = capture_machine(cpu)[0]['keyboard']['fields']['queue']
+    attempted, delivered = threading.Event(), threading.Event()
+    def input_thread():
+        attempted.set()
+        cpu._devices[1].PushKeyboardScancode(0x30)
+        delivered.set()
+    producer = threading.Thread(target=input_thread)
+    original = machinesnapshots.prepare_machine
+    def prepare(*args, **kwargs):
+        producer.start()
+        assert attempted.wait(1)
+        assert not delivered.wait(0.05)
+        return original(*args, **kwargs)
+    monkeypatch.setattr(machinesnapshots, 'prepare_machine', prepare)
+    h.rpc('machine.snapshot.import', path=path, disk_root=str(tmp_path/'restore'), expected_state_revision=0)
+    producer.join(1)
+    assert delivered.is_set()
+    assert capture_machine(cpu)[0]['keyboard']['fields']['queue'] == old_queue + [0x30]
+
+
+def test_telnet_refreshes_after_clock_rewind(tmp_path, monkeypatch):
+    import telnet
+    from types import SimpleNamespace
+    clocks = iter([10, 10, 4, 4])
+    sent = []
+    server = telnet.Telnet.__new__(telnet.Telnet)
+    server._scr = SimpleNamespace(GetClock=lambda:next(clocks))
+    server.SetupTelnetSession = lambda stream:None
+    server.PushScreen = lambda stream:sent.append(True)
+    monkeypatch.setattr(telnet.select, 'select', lambda *args:([],[],[]))
+    with pytest.raises(StopIteration):server.runner(object())
+    assert len(sent) == 2
+    h, cpu, vnc = rpc_machine(tmp_path)
+    display = h.namespace['machine_snapshots'].display
+    before = display.GetClock()
+    display.epoch += 1
+    assert display.GetClock() != before
