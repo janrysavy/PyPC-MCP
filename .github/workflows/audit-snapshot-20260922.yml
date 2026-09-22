@@ -1,0 +1,21 @@
+name: Audit source snapshot 20260922
+on:
+  push:
+    branches: [audit/snapshot-20260922]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 8d28a6d19bfd56ad870808581dcd9c7427aebc35
+          persist-credentials: false
+      - name: Package pinned public emulator tree
+        run: git archive --format=tar.gz --output=emulator-source.tar.gz HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emulator-source-8d28a6d
+          path: emulator-source.tar.gz
+          retention-days: 1
