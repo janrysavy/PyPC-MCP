@@ -32,7 +32,16 @@ def ParseArguments():
     parser.add_argument(
         '--video', choices=('cga', 'vga'), default='cga',
         help='select the emulated text/video adapter (default: cga)')
-    return parser.parse_args()
+    for name, default in (('rpc', 2301), ('telnet', 2300), ('vnc', 5902)):
+        parser.add_argument(f'--{name}-port', type=int, default=default,
+                            help=f'{name} listener port (default: {default})')
+    result = parser.parse_args()
+    ports = (result.rpc_port, result.telnet_port, result.vnc_port)
+    if any(port < 1 or port > 65535 for port in ports):
+        parser.error('listener ports must be in 1..65535')
+    if len(set(ports)) != len(ports):
+        parser.error('listener ports must be distinct')
+    return result
 
 def GetRegisters(state) -> str:
     return f'{state.GetFlagsAsString()} AX:{state.GetAX():04x} BX:{state.GetBX():04x} CX:{state.GetCX():04x} DX:{state.GetDX():04x} SP:{state.GetSP():04x} BP:{state.GetBP():04x} SI:{state.GetSI():04x} DI:{state.GetDI():04x} flags:{state.GetFlags():04x} ES:{state.GetES():04x} CS:{state.GetCS():04x} SS:{state.GetSS():04x} DS:{state.GetDS():04x} IP:{state.GetIP():04x}'
@@ -132,9 +141,9 @@ try:
                 number == 0x10 and cpu_state.GetCS() != 0xf000 and
                 scr.BiosInterrupt(cpu_state))
 
-    t = telnet.Telnet(2300, kb, scr)
-    v = vncserver.VNCServer(scr, kb, 5902, False)
-    debug = debugserver.DebugServer(2301)
+    t = telnet.Telnet(arguments.telnet_port, kb, scr)
+    v = vncserver.VNCServer(scr, kb, arguments.vnc_port, False)
+    debug = debugserver.DebugServer(arguments.rpc_port)
     control = {
         'paused': False, 'step': False, 'revision': 0,
         'snapshot_number': 0, 'snapshots': {},
@@ -426,7 +435,7 @@ try:
         if method in ('agent.capabilities', 'emulator.info'):
             return {
                 'protocol': 'JSON-RPC 2.0 over localhost JSON-lines',
-                'endpoint': '127.0.0.1:2301',
+                'endpoint': f'127.0.0.1:{arguments.rpc_port}',
                 'cpu': '8088', 'memory_bytes': 1024 * 1024,
                 'video_adapters': ['CGA', 'VGA'],
                 'address_spaces': ['physical', 'linear', 'segmented'],
@@ -801,8 +810,8 @@ try:
 
         raise LookupError(f'unknown method: {method}')
 
-    print('Use: "telnet localhost 2300" to interact with the emulated system')
-    print('and/or connect using a VNC client to localhost:5902 (preferred)')
+    print(f'Use: "telnet localhost {arguments.telnet_port}" to interact with the emulated system')
+    print(f'and/or connect using a VNC client to localhost:{arguments.vnc_port} (preferred)')
 
     p_time = time.time()
     p_cycles = 0
