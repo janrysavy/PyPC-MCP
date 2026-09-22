@@ -235,10 +235,8 @@ def test_additional_lost_state_changes_observable_continuation(lost):
     fields = manifest['fields']
     if lost == 'display':
         fields['display_address'] = 0
-        fields['crtc'][13] = 0
     elif lost == 'cursor':
         fields['cursor_location'] = 0
-        fields['crtc'][15] = 0
     elif lost == 'crtc':
         fields['crtc'][10] = 0x20  # Disable the cursor.
     elif lost == 'sequencer':
@@ -250,7 +248,14 @@ def test_additional_lost_state_changes_observable_continuation(lost):
     elif lost == 'clock':
         fields['clock'] += 100  # Move out of horizontal retrace.
     elif lost == 'scanline':
+        # CGA.Tick stores _palette_index[scan_line - 16]; fixture ticked
+        # scan_line 16 after port 3D9 selected palette 3.
+        assert fields['palette_index'][0] == 3
         fields['palette_index'][0] = 0  # Scan line 16 is visible row zero.
     actual = fresh(manifest, buffers, kind)
-    observed = ('ports', 'memory', 'frames')
-    assert [actual[k] for k in observed] != [expected[k] for k in observed]
+    if lost in ('sequencer', 'graphics'):
+        assert actual['memory'] != expected['memory']
+    elif lost in ('dac_read', 'clock'):
+        assert actual['ports'][:2] != expected['ports'][:2]
+    else:
+        assert actual['frames'][0] != expected['frames'][0]
