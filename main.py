@@ -23,6 +23,8 @@ import vncspeed
 import vga
 import xtide
 import virtualfat16
+from biosservice import VGAInterruptService
+from machinesnapshots import LockedDisplay, MachineSnapshots
 
 
 def ParseArguments():
@@ -139,15 +141,14 @@ try:
     state.SetCS(0xf000)
     state.SetIP(0xfff0)
     if arguments.video == 'vga':
-        p.SetInterruptServiceHook(
-            lambda number, cpu_state:
-                number == 0x10 and cpu_state.GetCS() != 0xf000 and
-                scr.BiosInterrupt(cpu_state))
+        p.SetInterruptServiceHook(VGAInterruptService(scr))
 
-    t = telnet.Telnet(arguments.telnet_port, kb, scr)
-    vnc_display = (vncspeed.SpeedDisplay(scr, state.GetClock)
-                   if arguments.vnc_speed_overlay else scr)
+    frontend_display = LockedDisplay(scr)
+    t = telnet.Telnet(arguments.telnet_port, kb, frontend_display)
+    vnc_display = (vncspeed.SpeedDisplay(frontend_display, state.GetClock)
+                   if arguments.vnc_speed_overlay else frontend_display)
     v = vncserver.VNCServer(vnc_display, kb, arguments.vnc_port, False)
+    machine_snapshots = MachineSnapshots(p, frontend_display, v)
     debug = debugserver.DebugServer(arguments.rpc_port)
     control = {
         'paused': False, 'step': False, 'revision': 0,
@@ -434,6 +435,7 @@ try:
         return result
 
     def handle_debug(request):
+        global trace, hardware_trace
         method = request['method']
         params = rpc_params(request)
 
@@ -459,8 +461,43 @@ try:
                     'trace.start', 'trace.read', 'trace.stop',
                     'hardware.trace.start', 'hardware.trace.read',
                     'hardware.trace.stop',
+                    'machine.snapshot.export', 'machine.snapshot.import',
                 ],
             }
+
+        if method in ('machine.snapshot.export', 'machine.snapshot.import'):
+            rpc_require_paused()
+            if rpc_number(params.get('expected_state_revision'), 'expected_state_revision') != control['revision']:
+                raise ValueError('expected state revision does not match the live state')
+            path = params.get('path')
+            if not isinstance(path, str) or not path:
+                raise ValueError('path must be a nonempty host path')
+            if method == 'machine.snapshot.export':
+                digest = machine_snapshots.export(path, params.get('disk_mode', 'auto'))
+                return {'sha256': digest, 'state_revision': control['revision']}
+            disk_root = params.get('disk_root')
+            if not isinstance(disk_root, str) or not disk_root:
+                raise ValueError('disk_root must be a new host directory path')
+            references = params.get('references', {})
+            if (not isinstance(references, dict)
+                    or any(k not in ('0', '1') or not isinstance(v, str) or not v for k,v in references.items())):
+                raise ValueError('references must map disk indices 0/1 to host paths')
+            machine_snapshots.restore(path, disk_root, params.get('sha256'),
+                                      {int(k):v for k,v in references.items()})
+            rpc_clear_run_until()
+            control['operations'].clear()
+            control['active_operation'] = None
+            control['snapshots'].clear()
+            control['skip_breakpoint_id'] = None
+            control['trace_event'] = None
+            trace = debugtrace.TraceRecorder()
+            hardware_trace = debughardware.HardwareTraceRecorder()
+            control['trace_active'] = False
+            control['hardware_trace_active'] = False
+            control['revision'] += 1
+            rpc_refresh_instruction_hooks()
+            return {'state_revision': control['revision'],
+                    'stop_reason': rpc_last_stop('machine_snapshot_restored')}
 
         if method == 'session.status':
             session_id = params.get('session_id')
