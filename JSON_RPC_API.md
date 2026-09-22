@@ -14,6 +14,11 @@ The emulator listens only on the local machine:
 TCP 127.0.0.1:2301
 ```
 
+Use `--rpc-port`, `--telnet-port`, and `--vnc-port` to run another instance
+alongside an existing one. Defaults are 2301, 2300, and 5902 respectively.
+Ports must be distinct integers in 1..65535. `agent.capabilities.endpoint`
+reports the selected RPC port. Each instance should use its own writable disks.
+
 Each request and response is one UTF-8 JSON object terminated by `LF` (`\n`). A
 client may keep the connection open and send multiple requests. Requests are
 executed by the CPU thread at an instruction boundary. The returned state is
