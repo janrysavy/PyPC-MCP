@@ -84,3 +84,13 @@ The fixed host font occupies eight pixel rows and can cover guest content.
 Omit the option to disable it. It copies rendered pixels without writing
 guest VRAM and uses ordinary RFB Raw updates, so any VNC viewer works.
 Guest video captures and telnet remain unchanged.
+
+### Optional VNC compression
+
+A client may request standard ZRLE encoding (16), with Raw (0) as fallback.
+The server respects their order and uses ZRLE for its native 32-bit little-
+endian RGB24 format; other negotiated formats use Raw. ZRLE uses lossless
+64x64 raw tiles with zlib level 1, one persistent stream per connection.
+Clients that request only Raw retain existing behavior. No private protocol
+or additional packages are used. Compression reduces bytes at a CPU cost;
+for local viewing Raw may have lower latency.
