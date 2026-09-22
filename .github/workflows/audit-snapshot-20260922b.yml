@@ -1,0 +1,21 @@
+name: Audit source snapshot 20260922b
+on:
+  push:
+    branches: [audit/snapshot-20260922b]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 04bc2a544fa6de549d91051bd59a8241b9e9697a
+          fetch-depth: 0
+          persist-credentials: false
+      - run: tar -czf "$RUNNER_TEMP/emulator-current.tar.gz" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: emulator-source-04bc2a5
+          path: ${{ runner.temp }}/emulator-current.tar.gz
+          retention-days: 1
