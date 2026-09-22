@@ -5,6 +5,9 @@ import device
 class XTIDE(device.Device):
     def __init__(self, disks: List[object]):
         self._disks = disks
+        # Cache the legacy identity once, so snapshots can carry it across
+        # processes and disk-path rebinding without changing IDENTIFY bytes.
+        self._serial_numbers = [str(hash(str(disk))) for disk in disks]
         self._status_register = 0
         self._error_register = 0
         self._drv = 0
@@ -52,7 +55,7 @@ class XTIDE(device.Device):
         self.PushSectorBufferWord(0)  # reserved, 7
         self.PushSectorBufferWord(0)  # reserved
         self.PushSectorBufferWord(0)  # reserved, 9
-        self.PushSectorBufferString(f"{hash(str(self._disks[drive]))}", 20) # serial number, ascii
+        self.PushSectorBufferString(self._serial_numbers[drive], 20) # serial number, ascii
         self.PushSectorBufferWord(0)  # buffer type
         self.PushSectorBufferWord(0)  # buffer size
         self.PushSectorBufferWord(0)  # ECC byte count
