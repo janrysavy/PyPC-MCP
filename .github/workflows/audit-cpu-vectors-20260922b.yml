@@ -1,0 +1,45 @@
+name: Public 8088 audit vectors 20260922b
+on:
+  push:
+    branches: [audit/cpu-vectors-20260922b]
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Download and reduce public hardware traces
+        shell: python
+        run: |
+          import gzip, hashlib, json, pathlib, urllib.request
+          revision = 'aea84484abc79d09639d855b7b0ab32bc9e4dbeb'
+          root = 'https://raw.githubusercontent.com/SingleStepTests/8088/' + revision + '/'
+          out = pathlib.Path('vectors'); out.mkdir()
+          def get(url):
+              return urllib.request.urlopen(url, timeout=90).read()
+          for name in ['README.md', 'LICENSE', 'v2/metadata.json']:
+              (out / name.split('/')[-1]).write_bytes(get(root + name))
+          entries = json.loads(get('https://api.github.com/repos/SingleStepTests/8088/contents/v2?ref=' + revision))
+          wanted = {'27','2f','37','3f','d0','d1','d2','d3','d4','d5','f6','f7'}
+          manifest = {'repository': 'SingleStepTests/8088', 'revision': revision, 'selection': 'first 2000 per file plus remaining CL=0/1 shift cases; cycles omitted', 'files': []}
+          for entry in entries:
+              name = entry['name']
+              if name.lower().split('.')[0] not in wanted or not name.endswith(('.json', '.json.gz')):
+                  continue
+              raw = get(root + 'v2/' + name)
+              tests = json.loads(gzip.decompress(raw) if name.endswith('.gz') else raw)
+              chosen = [t for i,t in enumerate(tests) if i < 2000 or (name.lower().startswith(('d2','d3')) and (t['initial']['regs']['cx'] & 255) <= 1)]
+              for test in chosen:
+                  test.pop('cycles', None)
+              target = name if name.endswith('.gz') else name + '.gz'
+              (out / target).write_bytes(gzip.compress(json.dumps(chosen).encode()))
+              manifest['files'].append({'path': 'v2/' + name, 'source_sha256': hashlib.sha256(raw).hexdigest(), 'source_count': len(tests), 'selected_count': len(chosen)})
+              print(name, len(chosen), flush=True)
+          assert manifest['files'], 'No vectors selected'
+          (out / 'manifest.json').write_text(json.dumps(manifest, indent=2))
+      - uses: actions/upload-artifact@v4
+        with:
+          name: public-8088-vectors-aea8448
+          path: vectors
+          retention-days: 1
