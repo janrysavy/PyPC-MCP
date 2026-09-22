@@ -1,6 +1,16 @@
 from typing import override, List, Tuple
 import device
 import queue
+import threading
+from functools import wraps
+
+
+def _locked(method):
+    @wraps(method)
+    def call(self, *args, **kwargs):
+        with self._state_lock:
+            return method(self, *args, **kwargs)
+    return call
 
 class Keyboard(device.Device):
     def __init__(self):
@@ -16,11 +26,13 @@ class Keyboard(device.Device):
         self._keyboard_buffer = queue.Queue()
         self._pressed_scancodes = set()
         super().__init__()
+        self._state_lock = threading.RLock()
 
     @override
     def GetIRQNumber(self) -> int:
         return self._irq_nr
 
+    @_locked
     def PushKeyboardScancode(self, scan_code: int):
         if scan_code & 0x80:
             self._pressed_scancodes.discard(scan_code & 0x7f)
@@ -30,6 +42,7 @@ class Keyboard(device.Device):
 
         self.ScheduleInterrupt(self._kb_key_irq)
 
+    @_locked
     def GetPressedScancodes(self):
         return sorted(self._pressed_scancodes)
 
@@ -43,6 +56,7 @@ class Keyboard(device.Device):
         pass
 
     @override
+    @_locked
     def IO_Write(self, port: int, value: int) -> bool:
         if port == 0x0061:
             self._0x61_bits = value
@@ -55,7 +69,8 @@ class Keyboard(device.Device):
                 self._keyboard_buffer = queue.Queue()
                 self._keyboard_buffer.put(0xaa)  # power on reset reply
 
-                self.ScheduleInterrupt(self._kb_reset_irq_delay)  # the value is a guess, need to protect this with a mutex
+                # Preserve the existing approximate reset delay.
+                self.ScheduleInterrupt(self._kb_reset_irq_delay)
 
             if (value & 0x80) != 0:
                 self._last_scan_code = 0
@@ -63,6 +78,7 @@ class Keyboard(device.Device):
         return False
 
     @override
+    @_locked
     def IO_Read(self, port: int) -> int:
         if port == 0x60:
             rc = self._last_scan_code
@@ -98,8 +114,17 @@ class Keyboard(device.Device):
         return True
 
     @override
+    @_locked
     def Tick(self, cycles: int, clock: int) -> bool:
         if (self._0x61_bits & 0x80) == 0 and self.CheckScheduledInterrupt(cycles):
             self._pic.RequestInterruptPIC(self._irq_nr)
 
         return False
+
+    @_locked
+    def ScheduleInterrupt(self, cycles_delay):
+        return super().ScheduleInterrupt(cycles_delay)
+
+    @_locked
+    def CheckScheduledInterrupt(self, cycles):
+        return super().CheckScheduledInterrupt(cycles)
