@@ -94,3 +94,18 @@ endian RGB24 format; other negotiated formats use Raw. ZRLE uses lossless
 Clients that request only Raw retain existing behavior. No private protocol
 or additional packages are used. Compression reduces bytes at a CPU cost;
 for local viewing Raw may have lower latency.
+
+### Optional private LZ4 encoding
+
+Our viewer may additionally request encoding `0x50594c34` (ASCII PYL4), an
+unregistered private version-1 encoding. It is sent only when explicitly
+advertised by the client and the optional `lz4` package is installed (tested
+with 4.4.5). Other clients retain
+standard Raw/ZRLE behavior. The server uses it only for the native format.
+
+Each rectangle body is a big-endian uint32 compressed byte count followed
+by that many bytes of an independent LZ4 block, without an embedded size
+(`store_size=False`). It decompresses to exactly width*height*4 bytes in
+B,G,R,padding order. No inter-rectangle dictionary or custom side channel
+is used. Client bounds must be checked before allocation/decompression.
+The identifier is a local convention, not an IANA registration.

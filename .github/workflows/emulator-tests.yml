@@ -18,7 +18,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
-      - run: python -m pip install pytest
+      - run: python -m pip install pytest lz4==4.4.5
       - run: python -m pytest -q
       - run: python benchmarks/benchmark_flags.py --ticks 100000 --repeats 3 > flags.json
       - uses: actions/upload-artifact@v4

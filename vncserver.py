@@ -5,6 +5,7 @@ import time
 
 from vncpixel import NATIVE_FORMAT, PixelFormat
 from vnczrle import Encoder
+import vnclz4
 
 
 def _full_rect(width, height):
@@ -383,7 +384,8 @@ class VNCServer:
                     if e == -259:
                         print("VNC client supports audio")
                         session.audio_enabled = True
-                session.encoding = next((e for e in requested if e in (0, 16)), 0)
+                supported = (0, 16, vnclz4.ENCODING) if vnclz4.AVAILABLE else (0, 16)
+                session.encoding = next((e for e in requested if e in supported), 0)
             elif type_ == 3:  # FramebufferUpdateRequest
                 request = self.RecvExact(session.stream, 9)
                 session.incremental = bool(request[0])
@@ -463,7 +465,10 @@ class VNCServer:
         else:
             payload = self._crop_frame(frame[2], frame[0], changed)
 
-        if session.encoding == 16 and session.pixel_format == NATIVE_FORMAT:
+        if session.encoding == vnclz4.ENCODING and session.pixel_format == NATIVE_FORMAT:
+            encoded = vnclz4.encode(payload, width, height)
+            update[12:16] = vnclz4.ENCODING.to_bytes(4, 'big')
+        elif session.encoding == 16 and session.pixel_format == NATIVE_FORMAT:
             if session.zrle is None:
                 session.zrle = Encoder()
             encoded = session.zrle.encode(payload, width, height)
