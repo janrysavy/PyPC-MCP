@@ -8,6 +8,7 @@ import sys
 import pytest
 import bus
 import i8088
+from i8253 import i8253
 from state8088 import State8088
 from statecodec import dump_cpu_state, load_cpu_state
 
@@ -68,10 +69,15 @@ def test_unclassified_runtime_field_refuses_export():
         dump_cpu_state(state)
 
 
-def machine():
+def machine(with_timer=False):
     memory = bus.Bus(1 << 20, [], [])
-    cpu = i8088.i8088(memory, [], False)
+    cpu = i8088.i8088(memory, [i8253()] if with_timer else [], with_timer)
     return cpu, memory
+
+
+def arm_irq(cpu):
+    cpu._io.GetPIC().IO_Write(0x21, 0)
+    cpu._io.GetPIC().RequestInterruptPIC(0)
 
 
 def continue_cpu(cpu, memory, ticks):
@@ -90,7 +96,8 @@ def continue_cpu(cpu, memory, ticks):
     ('f4', 1, 3),              # Halted CPU still advances its cycle count
 ])
 def test_fresh_process_continuation_matches(code, pause_after, ticks):
-    cpu, memory = machine()
+    pending_irq = code.startswith('fb')
+    cpu, memory = machine(with_timer=pending_irq)
     state = cpu.GetState()
     for name, value in dict(CS=0x1000, IP=0x100, DS=0x2000, SS=0x3000,
                             ES=0x4000, SI=0x200, DI=0x300, CX=5,
@@ -100,6 +107,10 @@ def test_fresh_process_continuation_matches(code, pause_after, ticks):
         cpu.WriteMemByte(0x1000, 0x100 + offset, byte)
     for offset, byte in enumerate(b'ABCDE'):
         cpu.WriteMemByte(0x3000, 0x200 + offset, byte)
+    if pending_irq:
+        cpu.WriteMemWord(0, 8 * 4, 0x1000)
+        cpu.WriteMemWord(0, 8 * 4 + 2, 0x5000)
+        cpu.WriteMemByte(0x5000, 0x1000, 0xf4)  # ISR halts.
     for _ in range(pause_after):
         cpu.Tick()
     if code.startswith('36'):
@@ -108,22 +119,35 @@ def test_fresh_process_continuation_matches(code, pause_after, ticks):
         assert state._inhibit_interrupts
     else:
         assert state._in_hlt
+    if pending_irq:
+        arm_irq(cpu)
     captured = {'cpu': dump_cpu_state(state), 'ram': memory._m._m.hex(),
-                'ticks': ticks}
+                'ticks': ticks, 'pending_irq': pending_irq}
     expected = continue_cpu(cpu, memory, ticks)
+    expected['initial'] = captured['cpu']
+    if pending_irq:
+        first = expected['frames'][0]['state']['fields']
+        second = expected['frames'][1]['state']['fields']
+        assert (first['cs'], first['ip']) == (0x1000, 0x102)  # NOP first.
+        assert (second['cs'], second['ip']) == (0x5000, 0x1000)  # Then IRQ.
     # stdin carries only JSON. No pickle, temp directory, or imported live object.
     program = '''
 import json, sys, typing
 if not hasattr(typing, 'override'):
     typing.override = lambda method: method
 sys.path.insert(0, 'tests')
-from test_statecodec import machine, continue_cpu
-from statecodec import load_cpu_state
+from test_statecodec import machine, continue_cpu, arm_irq
+from statecodec import load_cpu_state, dump_cpu_state
 data = json.load(sys.stdin)
-cpu, memory = machine()
+cpu, memory = machine(with_timer=data['pending_irq'])
 cpu._state = load_cpu_state(data['cpu'])
 memory._m._m[:] = bytes.fromhex(data['ram'])
-print(json.dumps(continue_cpu(cpu, memory, data['ticks'])))
+if data['pending_irq']:
+    arm_irq(cpu)
+initial = dump_cpu_state(cpu.GetState())
+result = continue_cpu(cpu, memory, data['ticks'])
+result['initial'] = initial
+print(json.dumps(result))
 '''
     completed = subprocess.run(
         [sys.executable, '-c', program], input=json.dumps(captured),
@@ -131,5 +155,16 @@ print(json.dumps(continue_cpu(cpu, memory, data['ticks'])))
         cwd=Path(__file__).resolve().parents[1],
     )
     assert json.loads(completed.stdout) == json.loads(json.dumps(expected))
+    if pending_irq:
+        # Negative control: losing STI's shadow must change interrupt delivery,
+        # not just the initial serialized fields.
+        captured['cpu']['fields']['inhibit_interrupts'] = False
+        corrupted = subprocess.run(
+            [sys.executable, '-c', program], input=json.dumps(captured),
+            text=True, capture_output=True, check=True, timeout=30,
+            cwd=Path(__file__).resolve().parents[1],
+        )
+        wrong_first = json.loads(corrupted.stdout)['frames'][0]['state']['fields']
+        assert (wrong_first['cs'], wrong_first['ip']) == (0x5000, 0x1000)
     if code.startswith('36'):
         assert memory._m._m[0x40300:0x40305] == b'ABCDE'
