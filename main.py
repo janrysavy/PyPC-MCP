@@ -19,6 +19,7 @@ import rom
 import telnet
 import time
 import vncserver
+import vncspeed
 import vga
 import xtide
 import virtualfat16
@@ -32,6 +33,8 @@ def ParseArguments():
     parser.add_argument(
         '--video', choices=('cga', 'vga'), default='cga',
         help='select the emulated text/video adapter (default: cga)')
+    parser.add_argument('--vnc-speed-overlay', action='store_true',
+                        help='show emulated/wall speed at top right over VNC pixels')
     for name, default in (('rpc', 2301), ('telnet', 2300), ('vnc', 5902)):
         parser.add_argument(f'--{name}-port', type=int, default=default,
                             help=f'{name} listener port (default: {default})')
@@ -142,7 +145,9 @@ try:
                 scr.BiosInterrupt(cpu_state))
 
     t = telnet.Telnet(arguments.telnet_port, kb, scr)
-    v = vncserver.VNCServer(scr, kb, arguments.vnc_port, False)
+    vnc_display = (vncspeed.SpeedDisplay(scr, state.GetClock)
+                   if arguments.vnc_speed_overlay else scr)
+    v = vncserver.VNCServer(vnc_display, kb, arguments.vnc_port, False)
     debug = debugserver.DebugServer(arguments.rpc_port)
     control = {
         'paused': False, 'step': False, 'revision': 0,

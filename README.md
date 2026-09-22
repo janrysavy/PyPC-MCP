@@ -70,3 +70,17 @@ sed -i 's/@override//g' *py
 Folkert van Heusden
 
 released under MIT license
+
+### Optional VNC speed overlay
+
+Add `--vnc-speed-overlay` to show `EMU 0.50x` at the top right. This is
+emulated CPU clock time divided by monotonic host time, sampled once per
+second while VNC requests frames. The nominal clock is 4,770,000 ticks/s,
+matching the debugger time conversion. It measures emulator throughput, not
+game frames or VNC updates. Pauses count as elapsed time; after a full paused
+sample the value is zero. Clock rollback resets the sample to `--.--x`.
+
+The fixed host font occupies eight pixel rows and can cover guest content.
+Omit the option to disable it. It copies rendered pixels without writing
+guest VRAM and uses ordinary RFB Raw updates, so any VNC viewer works.
+Guest video captures and telnet remain unchanged.

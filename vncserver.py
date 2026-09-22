@@ -75,6 +75,9 @@ def _diff_rect(previous, current, width, height):
 
 
 class VNCServer:
+    # Fallback also supports lightweight __new__ test fixtures.
+    _frame_lock = threading.RLock()
+
     class VNCServerThreadParameters:
         def __init__(self):
             self.vs = None  # VNCServer
@@ -97,6 +100,7 @@ class VNCServer:
         self._compatible = compatible
         self._compatible_width = 640
         self._compatible_height = 400
+        self._frame_lock = threading.RLock()
         self._frame_cache = None
         self._frame_cache_version = None
         self._frame_snapshot = None
@@ -216,6 +220,10 @@ class VNCServer:
         _thread.start()
 
     def _get_frame(self):
+        with self._frame_lock:
+            return self._get_frame_locked()
+
+    def _get_frame_locked(self):
         """Render once per visible display version, shared by all sessions."""
         version_getter = getattr(self._display, 'GetFrameVersion', None)
         if not callable(version_getter):
@@ -397,21 +405,22 @@ class VNCServer:
         return False
 
     def VNCSendFrame(self, session):
-        frame = self._get_frame()
-        frame_version = getattr(self, '_frame_cache_version', None)
+        # Sample/version/render/history lookup are one shared-cache transaction.
+        # Network writes stay outside the lock so a slow viewer cannot block others.
+        with self._frame_lock:
+            frame = self._get_frame_locked()
+            frame_version = getattr(self, '_frame_cache_version', None)
+            if session.incremental and frame_version is not None and not self._compatible:
+                changed = self._rect_since(session.sent_frame_version, frame_version,
+                                           frame[0], frame[1])
+            else:
+                changed = _full_rect(frame[0], frame[1])
 
-        if session.incremental and frame_version is not None and not self._compatible:
-            changed = self._rect_since(session.sent_frame_version, frame_version,
-                                       frame[0], frame[1])
-            if changed[2] == 0:
-                # RFC 6143 permits an update with zero rectangles when an
-                # incremental request has no changed pixels.
-                session.sent_frame_version = frame_version
-                with session.stream_lock:
-                    session.stream.sendall(b'\x00\x00\x00\x00')
-                return
-        else:
-            changed = _full_rect(frame[0], frame[1])
+        if changed[2] == 0:
+            session.sent_frame_version = frame_version
+            with session.stream_lock:
+                session.stream.sendall(b'\x00\x00\x00\x00')
+            return
 
         width = self._compatible_width if self._compatible else changed[2]
         height = self._compatible_height if self._compatible else changed[3]
