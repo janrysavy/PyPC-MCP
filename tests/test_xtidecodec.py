@@ -34,8 +34,8 @@ def command(device, value, drive=1, count=2, sector=17, head=0):
 def fixture(case):
     disks = [Disk(bytes([i]) * (80 * 512)) for i in (0x12, 0x34)]
     device = XTIDE(disks)
-    if case == 'write':
-        command(device, 0xc5)
+    if case in ('write', 'masterwrite'):
+        command(device, 0xc5, drive=0 if case == 'masterwrite' else 1)
         for i in range(513):
             device.IO_Write(0x300, i % 251)
         # Current taskfile/selection no longer identifies the pending write.
@@ -59,7 +59,7 @@ def fixture(case):
 def replay(device, case):
     initial, _ = dump_xtide_state(device)
     ports = []
-    if case == 'write':
+    if case in ('write', 'masterwrite'):
         for i in range(511):
             device.IO_Write(0x300, (i + 513) % 251)
     else:
@@ -97,7 +97,7 @@ print(json.dumps(replay(d,p['case'])))
     return json.loads(result.stdout)
 
 
-@pytest.mark.parametrize('case', ['write', 'read', 'maxread', 'identify', 'error'])
+@pytest.mark.parametrize('case', ['write', 'masterwrite', 'read', 'maxread', 'identify', 'error'])
 def test_fresh_process_matches_partial_transfer_ports_writes_and_identify(case):
     device = fixture(case)
     manifest, buffer = dump_xtide_state(device)
@@ -105,9 +105,10 @@ def test_fresh_process_matches_partial_transfer_ports_writes_and_identify(case):
     actual = fresh(manifest, buffer, device._disks, case)
     expected = replay(device, case)
     assert actual == expected
-    if case == 'write':
-        assert expected['writes'][0] == []
-        assert expected['writes'][1] == [[16 * 512, bytes(i % 251 for i in range(1024)).hex()]]
+    if case in ('write', 'masterwrite'):
+        drive = 0 if case == 'masterwrite' else 1
+        assert expected['writes'][1 - drive] == []
+        assert expected['writes'][drive] == [[16 * 512, bytes(i % 251 for i in range(1024)).hex()]]
     if case == 'error':
         assert expected['ports'][:2] == [4, 0]
 
@@ -217,3 +218,25 @@ print(bytes(d.IO_Read(0x300) for _ in range(512)).hex())
     assert [p.read_bytes() for p in rebound] == [p.read_bytes() for p in original]
     assert rebound[0].read_bytes() == before[0]
     assert rebound[1].read_bytes()[16 * 512:18 * 512] == bytes(i % 251 for i in range(1024))
+
+
+def test_reachable_replaced_buffer_can_extend_past_pending_target_geometry():
+    # Existing XTIDE behavior: a read replaces the buffer without cancelling
+    # an earlier pending write target. Snapshot validation must preserve this
+    # reachable state; repairing the controller's command policy is separate.
+    device = XTIDE([Disk(bytes(512 * 80))])
+    for port, value in ((0x304, 1), (0x306, 17), (0x308, 613 & 255),
+                        (0x30a, 613 >> 8), (0x30c, 3), (0x30e, 0xc5)):
+        device.IO_Write(port, value)
+    capacity = 614 * 4 * 17
+    assert device._target_lba == capacity - 1
+    command(device, 0xc4, drive=0, sector=1)
+    assert device._target_drive == 0 and len(device._sector_buffer) == 1024
+    manifest, buffer = dump_xtide_state(device)
+    restored = load_xtide_state(manifest, buffer, [Disk(device._disks[0].data)])
+    for controller in (device, restored):
+        for i in range(1024):
+            controller.IO_Write(0x300, i % 251)
+    assert restored._disks[0].writes == device._disks[0].writes
+    assert device._disks[0].writes == [[(capacity - 1) * 512,
+                                      bytes(i % 251 for i in range(1024)).hex()]]
