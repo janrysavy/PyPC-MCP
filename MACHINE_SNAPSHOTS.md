@@ -42,3 +42,19 @@ are refused before creating the destination directory, and the source machine
 capture remains identical. These tests establish this scenario, not exhaustive
 instruction/device/gameplay parity. Actual Pyro restart,
 RPC integration, atomic installation and independent review remain required.
+
+## Live-object installation primitive
+
+`machineinstall.install_machine` consumes a validated detached machine while
+preserving the live CPU state, device, port-map, timer callback and keyboard-lock
+identities. This keeps existing frontend and debugger references attached to
+the restored state. It rebinds the standard BIOS hook to the live video object,
+rebuilds memory routing and activates the saved host RNG. Adapter changes are
+refused before mutation. The caller must stop execution, exclude input/display
+threads and reset pending debugger operations and host display caches.
+
+Two installation tests pass: full synthetic continuation equals the original
+trace/state after restoring into the same live objects, and incompatible
+motherboards are refused without changing the source. All fifteen focused
+machine/container/installation tests pass. This primitive is not yet wired to
+RPC or running transports; those synchronization and restart tests remain open.
