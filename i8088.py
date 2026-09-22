@@ -13,6 +13,14 @@ class i8088:
         self._breakpoints = set()
         self._ignore_breakpoints: bool = False
         self._stop_reason: str = ''
+        self._memory_access_hook = None
+        self._memory_access_stop = None
+        self._memory_trace_hook = None
+        self._interrupt_hook = None
+        self._interrupt_stop = None
+        self._interrupt_service_hook = None
+        self._hardware_trace_hook = None
+        self._instruction_address = None
 
         self._state: state8088.State8088 = state8088.State8088()
 
@@ -219,16 +227,42 @@ class i8088:
 
     def ReadMemByte(self, segment: int, offset: int) -> int:
         a = ((segment << 4) + offset) & self._MemMask
-        rc = self._b.ReadByte(a)
-        self._state._clock += rc[1]
-        return rc[0]
+        if a < self._b._direct_ram_end:
+            value = self._b._m._m[a]
+        else:
+            rc = self._b.ReadByte(a)
+            self._state._clock += rc[1]
+            value = rc[0]
+        if (self._memory_access_hook is not None and
+                self._memory_access_stop is None):
+            self._memory_access_stop = self._memory_access_hook(
+                'memory_read', a, value, value, self._instruction_address)
+        if self._memory_trace_hook is not None:
+            self._memory_trace_hook('memory_read', a, value, value)
+        return value
 
     def ReadMemWord(self, segment: int, offset: int) -> int:
         return self.ReadMemByte(segment, offset) + (self.ReadMemByte(segment, (offset + 1) & 0xffff) << 8)
 
     def WriteMemByte(self, segment: int, offset: int, v: int):
         a = ((segment << 4) + offset) & self._MemMask
+        if a < self._b._direct_ram_end:
+            old = self._b._m._m[a]
+            if (self._memory_access_hook is not None and
+                    self._memory_access_stop is None):
+                self._memory_access_stop = self._memory_access_hook(
+                    'memory_write', a, old, v, self._instruction_address)
+            self._b._m._m[a] = v
+            if self._memory_trace_hook is not None:
+                self._memory_trace_hook('memory_write', a, old, v)
+            return
+        if (self._memory_access_hook is not None and
+                self._memory_access_stop is None):
+            self._memory_access_stop = self._memory_access_hook(
+                'memory_write', a, None, v, self._instruction_address)
         self._state._clock += self._b.WriteByte(a, v)
+        if self._memory_trace_hook is not None:
+            self._memory_trace_hook('memory_write', a, None, v)
 
     def WriteMemWord(self, segment: int, offset: int, v: int):
         self.WriteMemByte(segment, offset, v & 0xff);
@@ -238,7 +272,12 @@ class i8088:
         ip = self._state._ip
         self._state._ip += 1
         self._state._ip &= 0xffff
-        return self.ReadMemByte(self._state._cs, ip)
+        a = ((self._state._cs << 4) + ip) & self._MemMask
+        if a < self._b._direct_ram_end:
+            return self._b._m._m[a]
+        rc = self._b.ReadByte(a)
+        self._state._clock += rc[1]
+        return rc[0]
 
     def GetPcWord(self) -> int:
         v = self.GetPcByte()
@@ -344,49 +383,7 @@ class i8088:
 
         return ((a + disp) & 0xffff, cycles, override_segment, new_segment)
 
-    # value, segment_a_valid, segment/, address of value, number of cycles
-    def GetRegisterMem(self, reg: int, mod: int, w: bool) -> Tuple[int, bool, int, int, int]:
-        if mod == 0:
-            (a, cycles) = self.GetDoubleRegisterMod00(reg)
-
-            segment =  self._state._segment_override if self._state._segment_override_set else self._state._ds
-
-            if self._state._segment_override_set == False and (reg == 2 or reg == 3):  # BP uses SS
-                segment = self._state._ss
-
-            v = self.ReadMemWord(segment, a) if w else self.ReadMemByte(segment, a)
-
-            cycles += 6
-
-            return (v, True, segment, a, cycles)
-
-        if mod == 1 or mod == 2:
-            word = mod == 2
-
-            (a, cycles, override_segment, new_segment) = self.GetDoubleRegisterMod01_02(reg, word)
-
-            segment = self._state._segment_override if self._state._segment_override_set else self._state._ds
-
-            if self._state._segment_override_set == False and override_segment:
-                segment = new_segment
-
-            if self._state._segment_override_set == False and (reg == 2 or reg == 3):  # BP uses SS
-                segment = self._state._ss
-
-            v = self.ReadMemWord(segment, a) if w else self.ReadMemByte(segment, a)
-
-            cycles += 6
-
-            return (v, True, segment, a, cycles)
-
-        if mod == 3:
-            v = self.GetRegister(reg, w)
-
-            return (v, False, 0, 0, 0)
-
-        return (0, False, 0, 0, 0)
-
-    def GetRegisterMem(self, reg: int, mod: int, w: bool):
+    def GetRegisterMem(self, reg: int, mod: int, w: bool, read: bool = True):
         if mod == 0:
             a, cycles = self.GetDoubleRegisterMod00(reg)
 
@@ -395,7 +392,9 @@ class i8088:
             if self._state._segment_override_set == False and (reg == 2 or reg == 3):  # BP uses SS
                 segment = self._state._ss
 
-            v = self.ReadMemWord(segment, a) if w else self.ReadMemByte(segment, a)
+            v = 0
+            if read:
+                v = self.ReadMemWord(segment, a) if w else self.ReadMemByte(segment, a)
 
             cycles += 6
 
@@ -414,7 +413,9 @@ class i8088:
             if self._state._segment_override_set == False and (reg == 2 or reg == 3):  # BP uses SS
                 segment = self._state._ss
 
-            v = self.ReadMemWord(segment, a) if w else self.ReadMemByte(segment, a)
+            v = 0
+            if read:
+                v = self.ReadMemWord(segment, a) if w else self.ReadMemByte(segment, a)
 
             cycles += 6
 
@@ -685,9 +686,18 @@ class i8088:
     def Tick(self) -> int:
         cycle_count = 0  # cycles used for an instruction
         back_from_trace = False
+        if (self._memory_access_hook is not None or
+                self._interrupt_hook is not None):
+            self._instruction_address = {
+                'segment': self._state._cs, 'offset': self._state._ip,
+            }
+        if self._hardware_trace_hook is not None:
+            self._io.SetHardwareTraceContext(
+                {'space': 'segmented', 'segment': self._state._cs,
+                 'offset': self._state._ip}, self._state._clock)
 
         # check for interrupt
-        if self._state.GetFlagI() == True and self._state._inhibit_interrupts == False:
+        if (self._state._flags & (1 << 9)) != 0 and self._state._inhibit_interrupts == False:
             irq = self._io.GetPIC().GetPendingInterrupt()
             if irq != 255:
                 for device in self._devices:
@@ -698,13 +708,14 @@ class i8088:
                     self.InvokeInterrupt(self._state._ip, irq, True)
                     cycle_count += 60
                     self._state._clock += cycle_count
+                    self._io.Tick(cycle_count, self._state._clock)
 
                     return cycle_count
 
         self._state._inhibit_interrupts = False
 
         # T-flag produces an interrupt after each instruction
-        if self._state.GetInHlt():
+        if self._state._in_hlt:
             cycle_count += 2
             self._state._clock += cycle_count  # time needs to progress for timers etc
             self._io.Tick(cycle_count, self._state._clock)
@@ -719,11 +730,12 @@ class i8088:
 
         else:
             if instr_start in self._breakpoints:
-                self._stop_reason = f'Breakpoint reached at address {check_address:06x}'
+                self._stop_reason = f'Breakpoint reached at address {address:06x}'
                 return -1
 
         # handle prefixes
-        while opcode in (0x26, 0x2e, 0x36, 0x3e, 0xf2, 0xf3):
+        rep_prefix = None
+        while opcode in (0x26, 0x2e, 0x36, 0x3e, 0xf0, 0xf2, 0xf3):
             if opcode == 0x26:
                 self._state._segment_override = self._state._es
             elif opcode == 0x2e:
@@ -743,23 +755,27 @@ class i8088:
 
             self._state._rep_opcode = next_opcode  # TODO: only allow for certain instructions
 
-            if opcode == 0xf2:
+            if opcode in (0xf2, 0xf3):
+                rep_prefix = opcode
                 self._state._rep_addr = instr_start
-                if next_opcode in (0xa6, 0xa7, 0xae, 0xaf):
-                    self._state._rep_mode = state8088.State8088.RepMode.REPNZ
-                else:
-                    self._state._rep_mode = state8088.State8088.RepMode.REP
-            elif opcode == 0xf3:
-                self._state._rep_addr = instr_start
-                if next_opcode in (0xa6, 0xa7, 0xae, 0xaf):
-                    self._state._rep_mode = state8088.State8088.RepMode.REPE_Z
-                else:
-                    self._state._rep_mode = state8088.State8088.RepMode.REP
+            elif opcode == 0xf0:
+                # LOCK belongs to the following instruction; it must not
+                # introduce a debugger step or interrupt/trap boundary.
+                cycle_count += 2
             else:
                 self._state._segment_override_set = True  # TODO: move up
                 cycle_count += 2
 
             opcode = next_opcode
+
+        # The next byte may itself be a prefix. Use the final opcode so
+        # segment-prefix order does not turn a conditional repeat into REP.
+        if rep_prefix is not None:
+            self._state._rep_mode = state8088.State8088.RepMode.REP
+            if opcode in (0xa6, 0xa7, 0xae, 0xaf):
+                self._state._rep_mode = (
+                    state8088.State8088.RepMode.REPE_Z if rep_prefix == 0xf3
+                    else state8088.State8088.RepMode.REPNZ)
 
         if opcode == 0x00:
             if self._terminate_on_off_the_rails == True:
@@ -771,8 +787,9 @@ class i8088:
             self._state._crash_counter = 0
 
         # main instruction handling
-        if self._ops[opcode] != None:
-            cycle_count += self._ops[opcode](opcode)
+        op = self._ops[opcode]
+        if op != None:
+            cycle_count += op(opcode)
         # special cases
         elif opcode == 0x9d:
             before = self._state.GetFlagT()
@@ -825,6 +842,54 @@ class i8088:
         self._stop_reason = ''
         return rc
 
+    def SetMemoryAccessHook(self, hook):
+        self._memory_access_hook = hook
+        if hook is None:
+            self._memory_access_stop = None
+
+    def SetMemoryTraceHook(self, hook):
+        self._memory_trace_hook = hook
+
+    def SetIOTraceHook(self, hook):
+        self._io.SetTraceHook(hook)
+
+    def SetHardwareTraceHook(self, hook):
+        self._hardware_trace_hook = hook
+        self._io.SetHardwareTraceHook(hook)
+
+    def SetMemoryWriteHook(self, hook):
+        if hook is None:
+            self.SetMemoryAccessHook(None)
+            return
+
+        def write_only(kind, address, old, new, instruction_address):
+            if kind != 'memory_write':
+                return None
+            return hook(address, old, new, instruction_address)
+
+        self.SetMemoryAccessHook(write_only)
+
+    def ConsumeMemoryWriteStop(self):
+        stop = self._memory_access_stop
+        self._memory_access_stop = None
+        return stop
+
+    def ConsumeMemoryAccessStop(self):
+        return self.ConsumeMemoryWriteStop()
+
+    def SetInterruptHook(self, hook):
+        self._interrupt_hook = hook
+        if hook is None:
+            self._interrupt_stop = None
+
+    def SetInterruptServiceHook(self, hook):
+        self._interrupt_service_hook = hook
+
+    def ConsumeInterruptStop(self):
+        stop = self._interrupt_stop
+        self._interrupt_stop = None
+        return stop
+
     def GetBreakpoints(self) -> set:
         return self._breakpoints
 
@@ -832,7 +897,7 @@ class i8088:
         self._breakpoints.add(a)
 
     def DelBreakpoint(self, a):
-        del self._breakpoints[a]
+        self._breakpoints.remove(a)
 
     def ClearBreakpoints(self):
         self._breakpoints = set()
@@ -1136,7 +1201,7 @@ class i8088:
             self._state.SetFlagA((v & 15) == 0)
 
             self._state.SetFlagS((v & 0x8000) == 0x8000 if word else (v & 0x80) == 0x80)
-            self._state.SetFlagZ(v == 0 if word else (v & 0xff) == 0)
+            self._state.SetFlagZ((v & (0xffff if word else 0xff)) == 0)
             self._state.SetFlagP(v)
 
         elif function == 1:
@@ -1149,7 +1214,7 @@ class i8088:
             self._state.SetFlagA((v & 15) == 15)
 
             self._state.SetFlagS((v & 0x8000) == 0x8000 if word else (v & 0x80) == 0x80)
-            self._state.SetFlagZ(v == 0 if word else (v & 0xff) == 0)
+            self._state.SetFlagZ((v & (0xffff if word else 0xff)) == 0)
             self._state.SetFlagP(v)
 
         elif function == 2:
@@ -1162,12 +1227,13 @@ class i8088:
             cycle_count += 16
 
         elif function == 3:
-            # CALL FAR
+            # Read the full target before a possibly aliased stack write.
+            target_cs = self.ReadMemWord(seg, (addr + 2) & 0xffff)
             self.push(self._state._cs)
             self.push(self._state._ip)
 
             self._state._ip = v
-            self._state._cs = self.ReadMemWord(seg, (addr + 2) & 0xffff)
+            self._state._cs = target_cs
 
             cycle_count += 37
 
@@ -1179,14 +1245,14 @@ class i8088:
         elif function == 5:
             # JMP
             self._state._cs = self.ReadMemWord(seg, (addr + 2) & 0xffff)
-            self._state._ip = self.ReadMemWord(seg, addr)
+            self._state._ip = v
             cycle_count += 15
 
         elif function == 6 or function == 7:
             # PUSH rmw
             if reg == 4 and mod == 3 and word == True:  # PUSH SP
-                v -= 2
-                self.WriteMemWord(self._state._ss, v, v)
+                # 8088 PUSH SP stores the decremented SP.
+                self.push((v - 2) & 0xffff)
 
             else:
                 self.push(v)
@@ -1195,9 +1261,10 @@ class i8088:
 
         v &= 0xffff if word else 0xff
 
-        if mod == 3 and reg == 4 and word:
-            put_cycles = 0
-        else:
+        # CALL, JMP and PUSH only read their explicit operand. Writing it
+        # back can corrupt a return address when it aliases the stack.
+        put_cycles = 0
+        if function in (0, 1):
             put_cycles = self.UpdateRegisterMem(reg, mod, a_valid, seg, addr, word, v)
 
         return cycle_count + put_cycles
@@ -1293,7 +1360,8 @@ class i8088:
         if (opcode & 2) == 2:
             count = self._state._cl
 
-        count_1_of = opcode in (0xd0, 0xd1, 0xd2, 0xd3)
+        # A zero CL preserves all flags, including OF on rotates.
+        count_1_of = count != 0 and opcode in (0xd0, 0xd1, 0xd2, 0xd3)
 
         oldSign = (v1 & 0x8000 if word else v1 & 0x80) != 0
 
@@ -1399,12 +1467,12 @@ class i8088:
 
             set_flags = count != 0
 
-            self._state.SetFlagA(False)
-
-            if count == 1:
-                self._state.SetFlagO((org_v1 & check_bit) != 0)
-            else:
-                self._state.SetFlagO(False)
+            if set_flags:
+                self._state.SetFlagA(False)
+                if count == 1:
+                    self._state.SetFlagO((org_v1 & check_bit) != 0)
+                else:
+                    self._state.SetFlagO(False)
 
             cycle_count += count * 4
 
@@ -1448,8 +1516,7 @@ class i8088:
             set_flags = count != 0
             if set_flags:
                 self._state.SetFlagO(False)
-
-            self._state.SetFlagA(False)
+                self._state.SetFlagA(False)
 
             cycle_count += 2
 
@@ -1500,7 +1567,7 @@ class i8088:
         cycle_count = 2  # base (correct?)
 
         # get address to write to ('seg, addr')
-        (dummy, a_valid, seg, addr, get_cycles) = self.GetRegisterMem(mreg, mod, word)
+        (dummy, a_valid, seg, addr, get_cycles) = self.GetRegisterMem(mreg, mod, word, read=False)
         cycle_count += get_cycles
 
         if word:
@@ -1752,35 +1819,43 @@ class i8088:
             self._state.SetFlagC(False)
             self._state.SetFlagO(False)
 
-            # IDIV
+            # IDIV truncates toward zero; Python // instead rounds down.
+            # The dividend is signed AX (byte form) or signed DX:AX (word).
+            bits = 16 if word else 8
+            mask = (1 << bits) - 1
             if word:
-                dx_ax = (self._state.GetDX() << 16) | self._state.GetAX()
-                r1s = self.ToSigned16(r1)
-
-                if r1s == 0 or dx_ax // r1s > 0x7fffffff or dx_ax // r1s < -0x80000000:
-                    self._state.SetZSPFlags(self._state.GetAH())
-                    self._state.SetFlagA(False)
-                    self.InvokeInterrupt(self._state._ip, 0x00, False)  # divide by zero or divisor too small
-                else:
-                    if negate:
-                        self._state.SetAX((-(dx_ax // r1s)) & 0xffff)
-                    else:
-                        self._state.SetAX((dx_ax // r1s) & 0xffff)
-                    self._state.SetDX((dx_ax % r1s) & 0xffff)
+                dividend = (self._state.GetDX() << 16) | self._state.GetAX()
+                if dividend & 0x80000000:
+                    dividend -= 0x100000000
+                divisor = self.ToSigned16(r1)
             else:
-                ax = self.ToSigned16(self._state.GetAX())
-                r1s = self.ToSigned8(r1)
+                dividend = self.ToSigned16(self._state.GetAX())
+                divisor = self.ToSigned8(r1)
 
-                if r1s == 0 or ax // r1s > 0x7fff or ax // r1s < -0x8000:
-                    self._state.SetZSPFlags(self._state.GetAH())
-                    self._state.SetFlagA(False)
-                    self.InvokeInterrupt(self._state._ip, 0x00, False)  # divide by zero or divisor too small
+            quotient = 0
+            if divisor:
+                quotient = abs(dividend) // abs(divisor)
+                if (dividend < 0) != (divisor < 0):
+                    quotient = -quotient
+
+            # The 8086/8088 also traps on -128/-32768 quotients (unlike
+            # later x86 CPUs). Keep the existing post-instruction INT 0 IP.
+            if not divisor or abs(quotient) > (1 << (bits - 1)) - 1:
+                self._state.SetZSPFlags(self._state.GetAH())
+                self._state.SetFlagA(False)
+                self.InvokeInterrupt(self._state._ip, 0x00, False)
+            else:
+                remainder = dividend - quotient * divisor
+                # On 8088 a REP prefix negates only the quotient, not the
+                # remainder; do not feed that extra negation back into it.
+                if negate:
+                    quotient = -quotient
+                if word:
+                    self._state.SetAX(quotient & mask)
+                    self._state.SetDX(remainder & mask)
                 else:
-                    if negate:
-                        self._state.SetAL(-(ax // r1s) & 0xff)
-                    else:
-                        self._state.SetAL((ax // r1s) & 0xff)
-                    self._state.SetAH((ax % r1s) & 0xff)
+                    self._state.SetAL(quotient & mask)
+                    self._state.SetAH(remainder & mask)
 
         return cycle_count + 4
 
@@ -1796,6 +1871,18 @@ class i8088:
             else:
                 int = self.GetPcByte()
 
+            if self._interrupt_hook is not None and self._interrupt_stop is None:
+                self._interrupt_stop = self._interrupt_hook(
+                    int, self._state.GetAH(), self._state.GetAL(),
+                    self._state, self._instruction_address)
+                if self._interrupt_stop is not None:
+                    self._state._ip = self._instruction_address['offset']
+                    return 0
+
+            if (self._interrupt_service_hook is not None and
+                    self._interrupt_service_hook(int, self._state)):
+                return 51
+
             addr = (int * 4) & 0xffff
 
             self.push(self._state._flags)
@@ -1806,6 +1893,7 @@ class i8088:
                 self.push(self._state._ip)
 
             self._state.SetFlagI(False)
+            self._state.SetFlagT(False)
 
             self._state._ip = self.ReadMemWord(0, addr)
             self._state._cs = self.ReadMemWord(0, addr + 2)
@@ -2003,7 +2091,7 @@ class i8088:
         # JCXZ np
         offset = self.ToSigned8(self.GetPcByte())
 
-        addr = self._state._ip + offset
+        addr = (self._state._ip + offset) & 0xffff
 
         if self._state.GetCX() == 0:
             self._state._ip = addr
@@ -2207,8 +2295,7 @@ class i8088:
         # PUSH SP
         # special case, see:
         # https:#c9x.me/x86/html/file_module_x86_id_269.html
-        self._state._sp -= 2
-        self.WriteMemWord(self._state._ss, self._state._sp, self._state._sp)
+        self.push((self._state._sp - 2) & 0xffff)
         return 15
 
     def Op_PUSH_BP(self, opcode: int) -> int:  # 0x55
@@ -2572,7 +2659,7 @@ class i8088:
         reg = (o1 >> 3) & 7
         rm = o1 & 7
 
-        (val, a_valid, seg, addr, get_cycles) = self.GetRegisterMem(rm, mod, True)
+        (val, a_valid, seg, addr, get_cycles) = self.GetRegisterMem(rm, mod, True, read=False)
         self.PutRegister(reg, True, addr)
 
         return get_cycles + 3

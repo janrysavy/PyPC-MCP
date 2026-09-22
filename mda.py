@@ -6,15 +6,17 @@ import time
 
 class MDA(graphics.Graphics):
     def __init__(self):
+        self._clock = 0
         self._ram: bytearray = bytearray(b'\xff' * 16384)
         self._hsync: bool = False
         self._last_update: int = 0
+        self._frame_version: int = 1
         self._font = font.Font().get_font()
         self._display_address = 0
         self._ram_offset = 0xb0000
         self._gf_width = 640
         self._gf_height = 400
-        self._pixels = [ 0, 0, 0, 255 ] * (self._gf_width * self._gf_height)
+        self._pixels = bytearray((0, 0, 0, 255)) * (self._gf_width * self._gf_height)
 
         self._palette = []
         for p_row in [
@@ -53,6 +55,13 @@ class MDA(graphics.Graphics):
     def GetClock(self):
         return self._last_update
 
+    def GetFrameVersion(self):
+        """Return a monotonically increasing version for visible changes."""
+        return self._frame_version
+
+    def _mark_frame_dirty(self):
+        self._frame_version += 1
+
     @override
     def GetAddressList(self) -> list[Tuple[int, int]]:
         return [(self._ram_offset, 0x8000)]
@@ -74,15 +83,19 @@ class MDA(graphics.Graphics):
     @override
     def WriteByte(self, offset: int, value: int):
         use_offset = (offset - self._ram_offset) & 0x3fff
-        self._ram[use_offset] = value
+        value &= 0xff
+        if self._ram[use_offset] != value:
+            self._ram[use_offset] = value
+            self._mark_frame_dirty()
         # self._last_update += 1
 
     def RenderTextFrameGraphical(self):
         try:
-            width = 80
+            columns = self.GetTextColumns()
+            pixel_width = 2 if columns == 40 else 1
             for y in range(25):
-                for x in range(80):
-                    mem_pointer = self._display_address + y * 80 * 2 + x * 2
+                for x in range(columns):
+                    mem_pointer = self._display_address + y * columns * 2 + x * 2
                     char_base_offset = mem_pointer & 16382
                     character = self._ram[char_base_offset + 0]
                     attributes = self._ram[char_base_offset + 1]
@@ -93,22 +106,25 @@ class MDA(graphics.Graphics):
 
                     for py in range(8):
                         line = self._font[2][char_offset + py]
-                        pixel_offset = (y * 8 + py) * 640 * 4 * 2 + x * 8 * 4
-                        bit_mask = 128
-                        for i in range(pixel_offset, pixel_offset + 8 * 4, 4):
-                            pal = self._palette[fg if line & bit_mask else bg]
-                            self._pixels[i + 0] = pal[0]
-                            self._pixels[i + 0 + 640 * 4] = pal[0]
-                            self._pixels[i + 1] = pal[1]
-                            self._pixels[i + 1 + 640 * 4] = pal[1]
-                            self._pixels[i + 2] = pal[2]
-                            self._pixels[i + 2 + 640 * 4] = pal[2]
-                            bit_mask >>= 1
+                        pixel_offset = (y * 8 + py) * 640 * 4 * 2 + x * 8 * pixel_width * 4
+                        for glyph_x in range(8):
+                            pal = self._palette[fg if line & (128 >> glyph_x) else bg]
+                            for repeat_x in range(pixel_width):
+                                i = pixel_offset + (glyph_x * pixel_width + repeat_x) * 4
+                                self._pixels[i + 0] = pal[0]
+                                self._pixels[i + 0 + 640 * 4] = pal[0]
+                                self._pixels[i + 1] = pal[1]
+                                self._pixels[i + 1 + 640 * 4] = pal[1]
+                                self._pixels[i + 2] = pal[2]
+                                self._pixels[i + 2 + 640 * 4] = pal[2]
 
             return self._gf_width, self._gf_height, self._pixels
 
         except Exception as e:
             print(f'RenderTextFrameGraphical exception: {e}, line number: {e.__traceback__.tb_lineno}')
+
+    def GetTextColumns(self):
+        return 80
 
     def GetFrame(self):
         return self.RenderTextFrameGraphical()

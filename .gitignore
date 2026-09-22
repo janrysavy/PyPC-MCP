@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+*.prof
+*.bmp
+*.original.img
+.test-tmp/

@@ -104,6 +104,10 @@ class Telnet:
         key_map[ord('-')] = ( 0x0c, )
         key_map[ord('_')] = ( 0x2a, 0x0c, 0x0c | 0x80, 0x2a, 0xaa, )
         key_map[ord(':')] = ( 0x2a, 0x27, 0x27 | 0x80, 0x2a, 0xaa, )
+        # Convenience key for BIOS boot selection over the simple telnet input.
+        key_map[ord('~')] = ( 0x42, )  # F8
+        key_map[ord(']')] = ( 0xe0, 0x51 )  # Page Down
+        key_map[ord('[')] = ( 0xe0, 0x49 )  # Page Up
 
         if c in key_map:
             messages = key_map[c]

@@ -34,6 +34,19 @@ class CGA(mda.MDA):
     def GetName(self) -> str:
         return "CGA"
 
+    def GetTextColumns(self):
+        return 40 if self._cga_mode == self.CGAMode.Text40 else 80
+
+    def GetTextAddressMask(self):
+        return len(self._ram) - 1
+
+    def ReadTextByte(self, offset):
+        return self._ram[offset & self.GetTextAddressMask()]
+
+    def DecodeTextAttribute(self, attributes):
+        return (attributes & 0x0f, (attributes >> 4) & 0x07,
+                bool(attributes & 0x80))
+
     @override
     def RegisterDevice(self, mappings: dict):
         mappings[0x3d0] = self
@@ -67,8 +80,8 @@ class CGA(mda.MDA):
     def IO_Read(self, port: int) -> int:
         rc = 0
 
-        if (port == 0x3d5 or port == 0x3d7) and _m6845_reg >= 0x0c:
-            rc = self._m6845.Read(_m6845_reg)
+        if (port == 0x3d5 or port == 0x3d7) and self._m6845_reg >= 0x0c:
+            rc = self._m6845.Read(self._m6845_reg)
         elif port == 0x3da:
             if self.IsInVSync():
                 rc = 9  # regen buffer | 8 in vertical retrace
@@ -117,6 +130,7 @@ class CGA(mda.MDA):
             self._color_update_line_count = 0
 
         self._last_update += 1
+        self._mark_frame_dirty()
 
         return False
 
@@ -227,7 +241,7 @@ class CGA(mda.MDA):
                     self._pixels[offset2 + 0] = self._pixels[offset2 + 1] = self._pixels[offset2 + 2] = value
                     b >>= 1
 
-                return 640, 400, self._pixels
+            return 640, 400, self._pixels
 
         except Exception as e:
             print(f'CGA::RenderG640FrameGraphical exception: {e}, line number: {e.__traceback__.tb_lineno}')
@@ -248,7 +262,7 @@ class CGA(mda.MDA):
     def Tick(self, cycles: int, clock: int) -> bool:
         self._clock = clock
 
-        line = self.GetCurrentScanLine()
+        line = (clock // 304) % 262
 
         if self._color_configuration_changed:
             # 200: there's also a 160x100 mode for which this needs to be adjusted
@@ -269,4 +283,4 @@ class CGA(mda.MDA):
         else:
             self._pulse_vsync = False
 
-        return super().Tick(cycles, clock)
+        return False

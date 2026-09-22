@@ -6,11 +6,20 @@ import i8237
 import random
 
 
+_mode_names = (
+    "interrupt on terminal count", "hardware retriggerable one-shot",
+    "rate generator", "square wave generator",
+    "software triggered strobe", "hardware triggered strobe",
+    "rate generator (alias)", "square wave generator (alias)",
+)
+
+
 class i8253(device.Device):
     class Timer:
         counter_cur: int = 0
         counter_prv: int = 0
         counter_ini: int = 0
+        latched_count: int | None = None
         mode: int = 0
         latch_type: int = 0
         latch_n: int = 0
@@ -102,7 +111,7 @@ class i8253(device.Device):
                 self._timers[nr].counter_ini |= v
             elif self._timers[nr].latch_type == 2:
                 self._timers[nr].counter_ini &= 0x00ff
-                self._timers[nr].counter_ini |= (ushort)(v << 8)
+                self._timers[nr].counter_ini |= v << 8
             elif self._timers[nr].latch_type == 3:
                 if self._timers[nr].latch_n_cur == 2:
                     self._timers[nr].counter_ini &= 0xff00
@@ -132,23 +141,25 @@ class i8253(device.Device):
         return self._timers[nr].counter_cur & 0xff
 
     def GetCounter(self, nr: int) -> int:
+        timer = self._timers[nr]
+        snapshot = timer.latched_count
+        count = timer.counter_cur if snapshot is None else snapshot
         rc = 0
 
-        if self._timers[nr].latch_type == 1:
-            rc = self.AddNoiseToLSB(nr)
-        elif self._timers[nr].latch_type == 2:
-            rc = (self._timers[nr].counter_cur >> 8) & 0xff
-        elif self._timers[nr].latch_type == 3:
-            if self._timers[nr].latch_n_cur == 2:
-                rc = self.AddNoiseToLSB(nr)
-            else:
-                rc = (self._timers[nr].counter_cur >> 8) & 0xff
+        low_byte = timer.latch_type == 1 or (
+            timer.latch_type == 3 and timer.latch_n_cur == 2)
+        high_byte = timer.latch_type == 2 or (
+            timer.latch_type == 3 and timer.latch_n_cur != 2)
+        if low_byte:
+            rc = self.AddNoiseToLSB(nr) if snapshot is None else count & 0xff
+        elif high_byte:
+            rc = (count >> 8) & 0xff
 
-        self._timers[nr].latch_n_cur -= 1
-        self._timers[nr].latch_n_cur &= 0xffff
-
-        if self._timers[nr].latch_n_cur == 0:
-            self._timers[nr].latch_n_cur = self._timers[nr].latch_n
+        # Retain the 8253's existing shared read/write byte phase.
+        timer.latch_n_cur = (timer.latch_n_cur - 1) & 0xffff
+        if timer.latch_n_cur == 0:
+            timer.latch_n_cur = timer.latch_n
+            timer.latched_count = None
 
         return rc
 
@@ -158,7 +169,17 @@ class i8253(device.Device):
         mode  = (v >> 1) & 7
         type  = v & 1
 
+        if latch == 0:
+            # A pending snapshot is held until its entire programmed read.
+            # RL=00 does not change mode, BCD, access width, or byte phase.
+            if nr < 3:
+                timer = self._timers[nr]
+                if timer.latched_count is None and timer.latch_type != 0:
+                    timer.latched_count = timer.counter_cur & 0xffff
+            return
+
         if latch != 0:
+            self._timers[nr].latched_count = None
             self._timers[nr].mode = mode
             self._timers[nr].latch_type = latch
             self._timers[nr].is_running = False
@@ -187,27 +208,41 @@ class i8253(device.Device):
 
         n_to_subtract = self._clock // 4
 
-        for i in range(3):
-            if self._timers[i].is_running == False:
+        for i, timer in enumerate(self._timers):
+            if timer.is_running == False:
                 continue
 
-            self._timers[i].counter_cur -= n_to_subtract
-
-            divider = 0x10000 if self._timers[i].counter_ini == 0 else self._timers[i].counter_ini
-            n_interrupts = -self._timers[i].counter_cur // divider
+            counter_ini = timer.counter_ini
+            divider = 0x10000 if counter_ini == 0 else counter_ini
+            periodic = timer.mode in (2, 3, 6, 7) and not timer.is_bcd
+            if periodic:
+                # Binary periodic modes produce one event per divisor, not
+                # only after another full divisor beyond zero. Preserve every
+                # elapsed period when a CPU tick spans multiple PIT events.
+                remaining = (timer.counter_cur or divider) - n_to_subtract
+                if remaining > 0:
+                    timer.counter_cur = remaining
+                    continue
+                n_interrupts = 1 + (-remaining // divider)
+                timer.counter_cur = (divider - (-remaining % divider)) & 0xffff
+            else:
+                # Other modes and BCD retain their existing approximation.
+                timer.counter_cur -= n_to_subtract
+                n_interrupts = -timer.counter_cur // divider
 
             if n_interrupts > 0:
                 # timer 1 is RAM refresh counter
                 if i == 1:
                     self._i8237.TickChannel0(n_interrupts)
 
-                if self._timers[i].mode != 1:
-                    self._timers[i].counter_cur = self._timers[i].counter_ini - (-self._timers[i].counter_cur % divider)
-                else:
-                    self._timers[i].counter_cur &= 0xffff
+                if not periodic:
+                    if timer.mode != 1:
+                        timer.counter_cur = counter_ini - (-timer.counter_cur % divider)
+                    else:
+                        timer.counter_cur &= 0xffff
 
                 if i == 0:
-                    self._timers[i].is_pending = True
+                    timer.is_pending = True
                     interrupt = True
 
         self._clock -= n_to_subtract * 4

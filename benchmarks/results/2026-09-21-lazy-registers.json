@@ -1,0 +1,79 @@
+{
+  "baseline_commit": "913fc9d2da864ff8d16f246ad714fe9245efa9f6",
+  "performance_commit": "ef4e05a66e9f806339320b503352375fdf54aa6e",
+  "source_tree": "6cfa6def905e5b60bc782e3f5fc4c4442ffc96e5",
+  "host_cpu": "AMD EPYC 9V74 80-Core Processor",
+  "python": "3.13.5 (main, Jul 15 2026, 20:25:40) [GCC 14.2.0]",
+  "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
+  "synthetic_local": {
+    "benchmark": "production CPU/debugger loop; inc ax / jmp; one address miss",
+    "python": "3.13.5 (main, Jul 15 2026, 20:25:40) [GCC 14.2.0]",
+    "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
+    "ticks_per_sample": 200000,
+    "repeats": 7,
+    "wall_seconds": {
+      "eager": [0.9819711000000098, 1.070392464000065, 1.0860112699999718, 1.0610527009999942, 1.051867666000021, 1.0532163599999649, 1.0997348080001075],
+      "lazy": [0.6076462099999844, 0.5912205350000477, 0.5921159800000169, 0.6206821790000276, 0.5650833509999984, 0.5586201520000031, 0.5468530250000185]
+    },
+    "median_seconds": {"eager": 1.0610527009999942, "lazy": 0.5912205350000477},
+    "speedup": 1.7946817442663905,
+    "identical_final_registers_and_clock": {
+      "general": {"ax": 34464, "bx": 0, "cx": 0, "dx": 0, "sp": 36864, "bp": 0, "si": 0, "di": 0},
+      "segments": {"cs": 4096, "ds": 8192, "es": 12288, "ss": 8192},
+      "ip": 256, "flags": 150, "flags_text": "---s-ap-", "clock": 1800000, "in_hlt": false, "state_revision": 200000
+    },
+    "scope": "synthetic; not end-to-end DOS application execution"
+  },
+  "synthetic_github_actions": {
+    "benchmark": "production CPU/debugger loop; inc ax / jmp; one address miss",
+    "python": "3.13.15 (main, Aug  6 2026, 02:15:18) [GCC 13.3.0]",
+    "platform": "Linux-6.17.0-1022-azure-x86_64-with-glibc2.39",
+    "ticks_per_sample": 200000,
+    "repeats": 7,
+    "wall_seconds": {
+      "eager": [1.4610289849999987, 1.469592953000003, 1.464423319000005, 1.4820875750000084, 1.4708305589999924, 1.448580548999999, 1.4557612419999941],
+      "lazy": [0.8079417820000003, 0.8003034350000036, 0.8106587939999912, 0.8334273650000057, 0.8141872400000096, 0.7990027530000106, 0.794746748999998]
+    },
+    "median_seconds": {"eager": 1.464423319000005, "lazy": 0.8079417820000003},
+    "speedup": 1.8125356945582554,
+    "identical_final_registers_and_clock": {
+      "general": {"ax": 34464, "bx": 0, "cx": 0, "dx": 0, "sp": 36864, "bp": 0, "si": 0, "di": 0},
+      "segments": {"cs": 4096, "ds": 8192, "es": 12288, "ss": 8192},
+      "ip": 256, "flags": 150, "flags_text": "---s-ap-", "clock": 1800000, "in_hlt": false, "state_revision": 200000
+    },
+    "scope": "synthetic; not end-to-end DOS application execution"
+  },
+  "live_application": {
+    "guest_ms_per_sample": 250,
+    "pairs": 10,
+    "summary": {
+      "eager": {"median_wall_seconds": 0.7350163635001081, "median_ticks_per_second": 117418.59785364065, "total_ticks_per_second": 113952.65508053843},
+      "lazy": {"median_wall_seconds": 0.5044858589999421, "median_ticks_per_second": 168267.83933503652, "total_ticks_per_second": 166815.82279536608}
+    },
+    "wall_time_speedup": 1.456961281248108,
+    "tick_throughput_speedup": 1.4639046600315324,
+    "samples": [
+      {"mode": "eager", "wall_seconds": 0.7109148010001718, "cpu_ticks": 86954, "clock_cycles": 1192526, "polls": 58},
+      {"mode": "lazy", "wall_seconds": 0.4914823900001011, "cpu_ticks": 84761, "clock_cycles": 1192519, "polls": 43},
+      {"mode": "lazy", "wall_seconds": 0.566729862999864, "cpu_ticks": 84747, "clock_cycles": 1192505, "polls": 47},
+      {"mode": "eager", "wall_seconds": 0.8531584509998993, "cpu_ticks": 84773, "clock_cycles": 1192503, "polls": 65},
+      {"mode": "eager", "wall_seconds": 0.8216946089999055, "cpu_ticks": 87292, "clock_cycles": 1192506, "polls": 65},
+      {"mode": "lazy", "wall_seconds": 0.5013007929999276, "cpu_ticks": 85021, "clock_cycles": 1192508, "polls": 42},
+      {"mode": "lazy", "wall_seconds": 0.47116091300017615, "cpu_ticks": 85013, "clock_cycles": 1192507, "polls": 36},
+      {"mode": "eager", "wall_seconds": 0.684682420999934, "cpu_ticks": 85032, "clock_cycles": 1192522, "polls": 57},
+      {"mode": "eager", "wall_seconds": 0.7998136819999218, "cpu_ticks": 86976, "clock_cycles": 1192501, "polls": 64},
+      {"mode": "lazy", "wall_seconds": 0.5278261250000469, "cpu_ticks": 84732, "clock_cycles": 1192502, "polls": 44},
+      {"mode": "lazy", "wall_seconds": 0.5076709249999567, "cpu_ticks": 84748, "clock_cycles": 1192509, "polls": 42},
+      {"mode": "eager", "wall_seconds": 0.777551141999993, "cpu_ticks": 84766, "clock_cycles": 1192534, "polls": 58},
+      {"mode": "eager", "wall_seconds": 0.7494182780001211, "cpu_ticks": 86664, "clock_cycles": 1192524, "polls": 65},
+      {"mode": "lazy", "wall_seconds": 0.5223427559999436, "cpu_ticks": 85612, "clock_cycles": 1192506, "polls": 44},
+      {"mode": "lazy", "wall_seconds": 0.500238821000039, "cpu_ticks": 85000, "clock_cycles": 1192514, "polls": 42},
+      {"mode": "eager", "wall_seconds": 0.7206144490000952, "cpu_ticks": 85894, "clock_cycles": 1192504, "polls": 60},
+      {"mode": "eager", "wall_seconds": 0.7134509539998817, "cpu_ticks": 85661, "clock_cycles": 1192503, "polls": 58},
+      {"mode": "lazy", "wall_seconds": 0.5284048080000048, "cpu_ticks": 86880, "clock_cycles": 1192516, "polls": 46},
+      {"mode": "lazy", "wall_seconds": 0.49074535600016134, "cpu_ticks": 85565, "clock_cycles": 1192516, "polls": 41},
+      {"mode": "eager", "wall_seconds": 0.7121147420000398, "cpu_ticks": 85580, "clock_cycles": 1192504, "polls": 61}
+    ],
+    "limitations": "Sequential live-game phases, not identical-state replay. CPU ticks include HLT and are not retired instruction counts. A benchmark-only wrapper is present in both modes."
+  }
+}

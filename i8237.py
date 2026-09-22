@@ -18,18 +18,22 @@ class i8237(device.Device):
     class b16buffer:
         def __init__(self, f):
             self._value: int = 0
+            self._base_value: int = 0
             self._f = f
 
         def Put(self, v: int):
             assert v >= 0 and v <= 255
             low_high = self._f.get_state()
 
-            if low_high:
-                self._value &= 0xff
-                self._value |= v << 8
-            else:
-                self._value &= 0xff00
-                self._value |= v
+            # A CPU byte write updates current and base independently. The
+            # other byte can differ after DMA has advanced the current value.
+            mask = 0x00ff if low_high else 0xff00
+            bits = v << 8 if low_high else v
+            self._value = (self._value & mask) | bits
+            self._base_value = (self._base_value & mask) | bits
+
+        def GetBaseValue(self) -> int:
+            return self._base_value
 
         def GetValue(self) -> int:
             return self._value
@@ -80,14 +84,42 @@ class i8237(device.Device):
         mappings[0x83] = self
         mappings[0x87] = self
 
-    def TickChannel0(self, n):
-        # RAM refresh
-        self._channel_address_register[0].SetValue((self._channel_address_register[0].GetValue() + n) & 0xffff)
+    def _advance_channel(self, channel, transfers=1):
+        """Account completed transfers; TC status is not a transfer inhibit.
 
-        new_count = self._channel_word_count[0].GetValue() - n
-        if new_count < 0:
-            self._reached_tc[0] = True
-        self._channel_word_count[0].SetValue(new_count & 0xffff)
+        The batched refresh path must match individual transfers, including
+        multiple auto-initialize periods, without looping per refresh request.
+        """
+        if transfers <= 0:
+            return
+        address_reg = self._channel_address_register[channel]
+        count_reg = self._channel_word_count[channel]
+        address = address_reg.GetValue()
+        count = count_reg.GetValue()
+        step = -1 if self._channel_mode[channel] & 0x20 else 1
+        until_tc = count + 1
+        if transfers < until_tc:
+            address += step * transfers
+            count -= transfers
+        else:
+            self._reached_tc[channel] = True
+            if self._channel_mode[channel] & 0x10:
+                # Reload both registers at TC. Page latches are external to
+                # the 8237 and the CPU byte-pointer flip-flop is unaffected.
+                remaining = (transfers - until_tc) % (count_reg.GetBaseValue() + 1)
+                address = address_reg.GetBaseValue() + step * remaining
+                count = count_reg.GetBaseValue() - remaining
+            else:
+                address += step * until_tc
+                count = 0xffff
+                self._channel_mask[channel] = True
+        address_reg.SetValue(address & 0xffff)
+        count_reg.SetValue(count)
+
+    def TickChannel0(self, n):
+        # RAM refresh is a DMA request too: controller/channel masks apply.
+        if self._dma_enabled and not self._channel_mask[0]:
+            self._advance_channel(0, n)
 
     @override
     def IO_Read(self, addr: int) -> int:
@@ -126,6 +158,8 @@ class i8237(device.Device):
         elif addr == 0x0c:  # reset flipflop
             self._ff.reset()
         elif addr == 0x0d:  # master reset
+            self._command = 0
+            self._dma_enabled = True
             self.reset_masks(True)
             self._ff.reset()
             for i in range(4):
@@ -147,28 +181,12 @@ class i8237(device.Device):
         return False
 
     def ReceiveFromChannel(self, channel: int) -> int:
-        if self._dma_enabled == False:
+        if not self._dma_enabled or self._channel_mask[channel]:
             return -1
-
-        if self._channel_mask[channel]:
-            return -1
-
-        if self._reached_tc[channel]:
-            return -1
-
-        addr = self._channel_address_register[channel].GetValue()
-        full_addr = (self._channel_page[channel] << 16) | addr
-        addr += 1
-        self._channel_address_register[channel].SetValue(addr & 0xffff)
-
+        address = self._channel_address_register[channel].GetValue()
+        full_addr = (self._channel_page[channel] << 16) | address
         rc = self._b.ReadByte(full_addr)[0]
-
-        count = self._channel_word_count[channel].GetValue()
-        count -= 1
-        if count == -1:
-            self._reached_tc[channel] = True
-        _channel_word_count[channel].SetValue(count & 0xffff)
-
+        self._advance_channel(channel)
         return rc
 
     def IsChannelTC(self, channel: int) -> bool:
@@ -176,29 +194,12 @@ class i8237(device.Device):
 
     # used by devices (floppy etc) to send data to memory
     def SendToChannel(self, channel: int, value: int) -> bool:
-        if self._dma_enabled == False:
+        if not self._dma_enabled or self._channel_mask[channel]:
             return False
-
-        if self._channel_mask[channel]:
-            return False
-
-        if self._reached_tc[channel]:
-            return False
-
-        addr = self._channel_address_register[channel].GetValue()
-        full_addr = (_channel_page[channel] << 16) | addr
-        addr += 1
-        self._channel_address_register[channel].SetValue(addr & 0xffff)
-
+        address = self._channel_address_register[channel].GetValue()
+        full_addr = (self._channel_page[channel] << 16) | address
         self._b.WriteByte(full_addr, value)
-
-        count = _channel_word_count[channel].GetValue()
-        count -= 1
-        if count == -1:
-            self._reached_tc[channel] = True
-
-        _channel_word_count[channel].SetValue(count & 0xffff)
-
+        self._advance_channel(channel)
         return True
 
     @override

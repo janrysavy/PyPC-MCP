@@ -1,9 +1,85 @@
 import select
 import socket
 import threading
+import time
+
+from vncpixel import NATIVE_FORMAT, PixelFormat
+from vnczrle import Encoder
+import vnclz4
+
+
+def _full_rect(width, height):
+    return (0, 0, width, height)
+
+
+def _empty_rect():
+    return (0, 0, 0, 0)
+
+
+def _union_rect(first, second):
+    if first[2] == 0:
+        return second
+    if second[2] == 0:
+        return first
+    left = min(first[0], second[0])
+    top = min(first[1], second[1])
+    right = max(first[0] + first[2], second[0] + second[2])
+    bottom = max(first[1] + first[3], second[1] + second[3])
+    return left, top, right - left, bottom - top
+
+
+def _diff_rect(previous, current, width, height):
+    """Find a safe changed-pixel bounding box without per-client scanning."""
+    if len(previous) != len(current) or len(current) != width * height * 4:
+        return _full_rect(width, height)
+
+    old_view = memoryview(previous)
+    new_view = memoryview(current)
+    row_bytes = width * 4
+    min_x = width
+    min_y = height
+    max_x = -1
+    max_y = -1
+    changed_rows = 0
+
+    for y in range(height):
+        row_start = y * row_bytes
+        old_row = old_view[row_start:row_start + row_bytes]
+        new_row = new_view[row_start:row_start + row_bytes]
+        if old_row == new_row:
+            continue
+
+        changed_rows += 1
+        # For a substantially changed frame, the full rectangle avoids doing
+        # a second expensive pixel scan while remaining wire-correct.
+        if changed_rows > max(32, height // 4):
+            return _full_rect(width, height)
+
+        row_min = width
+        row_max = -1
+        for x in range(width):
+            offset = x * 4
+            if (old_row[offset] != new_row[offset] or
+                    old_row[offset + 1] != new_row[offset + 1] or
+                    old_row[offset + 2] != new_row[offset + 2] or
+                    old_row[offset + 3] != new_row[offset + 3]):
+                row_min = min(row_min, x)
+                row_max = x
+        if row_max >= 0:
+            min_x = min(min_x, row_min)
+            max_x = max(max_x, row_max)
+            min_y = min(min_y, y)
+            max_y = max(max_y, y)
+
+    if max_x < 0:
+        return _empty_rect()
+    return min_x, min_y, max_x - min_x + 1, max_y - min_y + 1
 
 
 class VNCServer:
+    # Fallback also supports lightweight __new__ test fixtures.
+    _frame_lock = threading.RLock()
+
     class VNCServerThreadParameters:
         def __init__(self):
             self.vs = None  # VNCServer
@@ -13,6 +89,12 @@ class VNCServer:
         def __init__(self):
             self.stream_lock = threading.Lock()
             self.stream = -1
+            self.frame_requested = False
+            self.incremental = False
+            self.sent_frame_version = None
+            self.pixel_format = NATIVE_FORMAT
+            self.encoding = 0
+            self.zrle = None
 
     def __init__(self, display, kb, port, compatible):
         self._thread = None
@@ -20,8 +102,13 @@ class VNCServer:
         self._kb = kb  # Keyboard
         self._listen_port = port
         self._compatible = compatible
-        self._compatible_width = 720
+        self._compatible_width = 640
         self._compatible_height = 400
+        self._frame_lock = threading.RLock()
+        self._frame_cache = None
+        self._frame_cache_version = None
+        self._frame_snapshot = None
+        self._frame_history = []
 
         self._key_map = dict()
         self._key_map[0xff1b] = ( 0x01, )  # escape
@@ -126,12 +213,86 @@ class VNCServer:
         self._key_map[0xff53] = ( 0x4d, )  # cursor right
         self._key_map[0xff50] = ( 0x47, )  # home
         self._key_map[0xff57] = ( 0x4f, )  # end
+        self._key_map[0xff56] = ( 0xe0, 0x51 )  # page down
+        self._key_map[0xff55] = ( 0xe0, 0x49 )  # page up
+        self._key_map[0xff14] = ( 0x46, )  # Scroll Lock (X11 keysym -> XT scan code)
 
 
         _thread = threading.Thread(target=self.VNCServerThread, args=(port, ))
         _thread.daemon = True
         _thread.name = "vnc-server-thread"
         _thread.start()
+
+    def _get_frame(self):
+        with self._frame_lock:
+            return self._get_frame_locked()
+
+    def _get_frame_locked(self):
+        """Render once per visible display version, shared by all sessions."""
+        version_getter = getattr(self._display, 'GetFrameVersion', None)
+        if not callable(version_getter):
+            return self._display.GetFrame()
+        version = version_getter()
+        if getattr(self, '_frame_cache_version', None) != version:
+            previous = getattr(self, '_frame_snapshot', None)
+            self._frame_cache = self._display.GetFrame()
+            self._frame_cache_version = version
+            width, height, pixels = self._frame_cache
+            rect = (_full_rect(width, height) if previous is None else
+                    _diff_rect(previous, pixels, width, height))
+            history = getattr(self, '_frame_history', None)
+            if history is None:
+                history = self._frame_history = []
+            history.append((version, rect))
+            if len(history) > 128:
+                del history[:-128]
+            self._frame_snapshot = bytes(pixels)
+        return self._frame_cache
+
+    def _rect_since(self, version, current_version, width, height):
+        """Union rendered changes after a session's last sent version."""
+        if version is None:
+            return _full_rect(width, height)
+        if version == current_version:
+            return _empty_rect()
+
+        history = getattr(self, '_frame_history', ())
+        start = None
+        for index, (item_version, _) in enumerate(history):
+            if item_version == version:
+                start = index
+                break
+        if start is None:
+            return _full_rect(width, height)
+
+        result = _empty_rect()
+        found_current = False
+        for item_version, rect in history[start + 1:]:
+            result = _union_rect(result, rect)
+            if item_version == current_version:
+                found_current = True
+                break
+        return result if found_current else _full_rect(width, height)
+
+    @staticmethod
+    def _crop_frame(pixels, frame_width, rect):
+        x, y, width, height = rect
+        try:
+            source = memoryview(pixels).cast('B')
+        except TypeError:
+            source = memoryview(bytes(pixels))
+        if x == 0 and width == frame_width:
+            start = y * frame_width * 4
+            return source[start:start + height * frame_width * 4]
+        row_bytes = width * 4
+        source_row_bytes = frame_width * 4
+        cropped = bytearray(row_bytes * height)
+        for row in range(height):
+            source_start = (y + row) * source_row_bytes + x * 4
+            target_start = row * row_bytes
+            cropped[target_start:target_start + row_bytes] = source[
+                source_start:source_start + row_bytes]
+        return cropped
 
     def PushChar(self, c, press):
         if self._kb == None:
@@ -141,13 +302,23 @@ class VNCServer:
             for m in self._key_map[c]:
                 self._kb.PushKeyboardScancode(m if press else (m | 0x80))
 
+    @staticmethod
+    def RecvExact(stream, length):
+        buffer = bytearray()
+        while len(buffer) < length:
+            chunk = stream.recv(length - len(buffer))
+            if not chunk:
+                raise ConnectionError('VNC client closed the connection')
+            buffer.extend(chunk)
+        return bytes(buffer)
+
     def VNCSendVersion(self, stream):
         msg = "RFB 003.008\n".encode('ascii')
-        stream.send(msg)
+        stream.sendall(msg)
 
         # wait for reply, ignoring what it is
         while True:
-            buffer = int.from_bytes(stream.recv(1))
+            buffer = self.RecvExact(stream, 1)[0]
             print(f'{buffer:c}', end='')
             if buffer == ord('\n'):
                 break
@@ -155,18 +326,18 @@ class VNCServer:
 
     def VNCSecurityHandshake(self, stream):
         list_ = (1, 1)  # 1, None
-        stream.send(bytes(list_))
+        stream.sendall(bytes(list_))
 
         # receive reply with choice, ignoring choice
-        buffer = stream.recv(1)
+        self.RecvExact(stream, 1)
 
         reply = [ 0 ] * 4
-        stream.send(bytes(reply))
+        stream.sendall(bytes(reply))
 
     def VNCClientServerInit(self, stream):
-        shared = stream.recv(1)
+        self.RecvExact(stream, 1)
 
-        example = self._display.GetFrame()
+        example = self._get_frame()
         width = self._compatible_width if self._compatible else example[0]
         height = self._compatible_height if self._compatible else example[1]
         reply = [ 0 ] * 24
@@ -174,67 +345,62 @@ class VNCServer:
         reply[1] = width & 255
         reply[2] = height >> 8
         reply[3] = height & 255
-        reply[4] = 32  # bits per pixel
-        reply[5] = 32  # depth
-        reply[6] = 1  # big endian
-        reply[7] = 1  # True color
-        reply[8] = 0  # red max
-        reply[9] = 255  # red max
-        reply[10] = 0  # green max
-        reply[11] = 255  # green max
-        reply[12] = 0  # blue max
-        reply[13] = 255  # blue max
-        reply[14] = 16  # red shift
-        reply[15] = 8  # green shift
-        reply[16] = 0  # blue shift
-        reply[17] = reply[18] = reply[19] = 0  # padding
+        reply[4:20] = NATIVE_FORMAT.to_bytes()
         name = 'PyPC'
         name_bytes = name.encode('ascii')
         reply[20] = (len(name_bytes) >> 24) & 255
         reply[21] = (len(name_bytes) >> 16) & 255
         reply[22] = (len(name_bytes) >>  8) & 255
         reply[23] = len(name_bytes) & 255
-        stream.send(bytes(reply))
-        stream.send(name_bytes)
+        stream.sendall(bytes(reply))
+        stream.sendall(name_bytes)
 
     def VNCWaitForEvent(self, session):
         try:
-            poller = select.poll()
-            poller.register(session.stream, select.POLLIN)
-            events = poller.poll(1 / 15)  # 15 fps
-            if len(events) == 0:
+            # select.poll() is unavailable on Windows; select.select() works
+            # for the socket used by the VNC session on all supported hosts.
+            readable, _, _ = select.select([session.stream], [], [], 1 / 60)
+            if len(readable) == 0:
                 return True
 
-            type_ = int.from_bytes(session.stream.recv(1))
+            type_ = self.RecvExact(session.stream, 1)[0]
 
             if type_ == 0:  # SetPixelFormat
-                temp = session.stream.recv(3 + 16)
+                self.RecvExact(session.stream, 3)  # padding
+                session.pixel_format = PixelFormat.from_bytes(
+                    self.RecvExact(session.stream, 16))
+                session.sent_frame_version = None
             elif type_ == 2:  # SetEncodings
-                temp = session.stream.recv(3)
+                temp = self.RecvExact(session.stream, 3)
 
                 no_encodings = (temp[1] << 8) | temp[2]
                 print(f'VNC: retrieve {no_encodings} encodings')
+                requested = []
                 for i in range(no_encodings):
-                    encoding = session.stream.recv(4)
+                    encoding = self.RecvExact(session.stream, 4)
                     e = int.from_bytes(encoding, 'big', signed=True)
                     print(f'VNC: retrieved encoding {i}: {e}')
+                    requested.append(e)
                     if e == -259:
                         print("VNC client supports audio")
                         session.audio_enabled = True
+                supported = (0, 16, vnclz4.ENCODING) if vnclz4.AVAILABLE else (0, 16)
+                session.encoding = next((e for e in requested if e in supported), 0)
             elif type_ == 3:  # FramebufferUpdateRequest
-                buffer = session.stream.recv(9)
-                # TODO
+                request = self.RecvExact(session.stream, 9)
+                session.incremental = bool(request[0])
+                session.frame_requested = True
             elif type_ == 4:  # KeyEvent
-                buffer = session.stream.recv(7)
+                buffer = self.RecvExact(session.stream, 7)
                 vnc_scan_code = (buffer[3] << 24) | (buffer[4] << 16) | (buffer[5] << 8) | buffer[6]
                 print(f'Key {buffer[0]} {vnc_scan_code:04x}')
                 self.PushChar(vnc_scan_code, buffer[0] != 0)
             elif type_ == 5:  # PointerEvent
-                buffer = session.stream.recv(5)
+                self.RecvExact(session.stream, 5)
             elif type_ == 6:  # ClientCutText
-                buffer = session.stream.recv(7)
+                buffer = self.RecvExact(session.stream, 7)
                 n_to_read = (buffer[3] << 24) | (buffer[4] << 16) | (buffer[5] << 8) | buffer[6]
-                temp = session.stream.recv(n_to_read)
+                self.RecvExact(session.stream, n_to_read)
             else:
                 print(f'VNC: Client message {type_} not understood')
                 return False
@@ -246,34 +412,38 @@ class VNCServer:
 
         return False
 
-    def VNCSendFrame(self, session, first):
-        frame = self._display.GetFrame()
+    def VNCSendFrame(self, session):
+        # Sample/version/render/history lookup are one shared-cache transaction.
+        # Network writes stay outside the lock so a slow viewer cannot block others.
+        with self._frame_lock:
+            frame = self._get_frame_locked()
+            frame_version = getattr(self, '_frame_cache_version', None)
+            if session.incremental and frame_version is not None and not self._compatible:
+                changed = self._rect_since(session.sent_frame_version, frame_version,
+                                           frame[0], frame[1])
+            else:
+                changed = _full_rect(frame[0], frame[1])
 
-        width = self._compatible_width if self._compatible else frame[0]
-        height = self._compatible_height if self._compatible else frame[1]
-
-        if not self._compatible:
-            resize = [ 0 ] * 5
-            resize[0] = 15  # ResizeFrameBuffer
-            resize[1] = width >> 8  # width
-            resize[2] = width & 255
-            resize[3] = height >> 8  # height
-            resize[4] = height & 255
+        if changed[2] == 0:
+            session.sent_frame_version = frame_version
             with session.stream_lock:
-                session.stream.send(bytes(resize))
+                session.stream.sendall(b'\x00\x00\x00\x00')
+            return
 
-        update = [ 0 ] * (4 + 12)
+        width = self._compatible_width if self._compatible else changed[2]
+        height = self._compatible_height if self._compatible else changed[3]
+        update = [0] * (4 + 12)
         update[0] = 0  # FrameBufferUpdate
         update[1] = 0  # padding
-        update[2] = 0  # 1 rectangle
+        update[2] = 0  # one rectangle
         update[3] = 1
-        update[4] = 0  # x pos
-        update[5] = 0
-        update[6] = 0  # y pos
-        update[7] = 0
-        update[8] = width >> 8  # width
+        update[4] = 0 if self._compatible else changed[0] >> 8
+        update[5] = 0 if self._compatible else changed[0] & 255
+        update[6] = 0 if self._compatible else changed[1] >> 8
+        update[7] = 0 if self._compatible else changed[1] & 255
+        update[8] = width >> 8
         update[9] = width & 255
-        update[10] = height >> 8  # height
+        update[10] = height >> 8
         update[11] = height & 255
         update[12] = 0
         update[13] = 0
@@ -281,35 +451,51 @@ class VNCServer:
         update[15] = 0
 
         if self._compatible and (width != frame[0] or height != frame[1]):
-            buffer = [ 0 ] * (width * height * 4)
+            buffer = bytearray(width * height * 4)
             use_width = min(width, frame[0])
             use_height = min(height, frame[1])
             for y in range(use_height):
                 in_offset = y * frame[0] * 4
                 out_offset = y * width * 4
-                buffer[out_offset:out_offset + use_width * 4] = frame[2][in_offset:in_offset + use_width * 4]
-            with session.stream_lock:
-                session.stream.send(bytes(update))
-                session.stream.send(bytes(buffer))
+                buffer[out_offset:out_offset + use_width * 4] = frame[2][
+                    in_offset:in_offset + use_width * 4]
+            payload = buffer
+        elif self._compatible:
+            payload = frame[2]
         else:
-            with session.stream_lock:
-                session.stream.send(bytes(update))
-                session.stream.send(bytes(frame[2]))
+            payload = self._crop_frame(frame[2], frame[0], changed)
+
+        if session.encoding == vnclz4.ENCODING and session.pixel_format == NATIVE_FORMAT:
+            encoded = vnclz4.encode(payload, width, height)
+            update[12:16] = vnclz4.ENCODING.to_bytes(4, 'big')
+        elif session.encoding == 16 and session.pixel_format == NATIVE_FORMAT:
+            if session.zrle is None:
+                session.zrle = Encoder()
+            encoded = session.zrle.encode(payload, width, height)
+            update[15] = 16
+        else:
+            encoded = session.pixel_format.encode_bgra(payload)
+        with session.stream_lock:
+            session.stream.sendall(bytes(update))
+            session.stream.sendall(encoded)
+        session.sent_frame_version = frame_version
 
     def VNCClientThread(self, session):
         try:
             self.VNCSendVersion(session.stream)
             self.VNCSecurityHandshake(session.stream)
             self.VNCClientServerInit(session.stream)
+            # RFB updates are demand-driven; wait for the first client request.
 
-            version = 0
-            first = True
+            last_frame_time = 0.0
+            frame_interval = 1.0 / 20.0
             while True:
-                new_version = self._display.GetClock()
-                if new_version != version or first:
-                    version = new_version
-                    self.VNCSendFrame(session, first)
-                    first = False
+                now = time.monotonic()
+                if (session.frame_requested and
+                        now - last_frame_time >= frame_interval):
+                    self.VNCSendFrame(session)
+                    session.frame_requested = False
+                    last_frame_time = now
 
                 if self.VNCWaitForEvent(session) == False:
                     break
