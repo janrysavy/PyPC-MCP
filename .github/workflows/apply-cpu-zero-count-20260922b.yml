@@ -1,0 +1,50 @@
+name: Apply verified CPU zero-count correction
+on:
+  push:
+    branches: [fix/cpu-zero-count-flags-20260922b]
+    paths: [.github/workflows/apply-cpu-zero-count-20260922b.yml]
+permissions:
+  contents: write
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Apply exact locally validated changes
+        shell: python
+        run: |
+          import hashlib
+          from pathlib import Path
+          path = Path('i8088.py')
+          raw = path.read_bytes()
+          def blob_hash(data):
+              return hashlib.sha1(b'blob ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+          assert blob_hash(raw) == '86d0c7c26c371772484f2d14a451c98dd9751424'
+          source = raw.decode()
+          old = 'count_1_of = opcode in (0xd0, 0xd1, 0xd2, 0xd3)'
+          new = '# A zero CL preserves all flags, including OF on rotates.\n        count_1_of = count != 0 and opcode in (0xd0, 0xd1, 0xd2, 0xd3)'
+          assert source.count(old) == 1
+          source = source.replace(old, new)
+          old = '            self._state.SetFlagA(False)\n\n            if count == 1:\n                self._state.SetFlagO((org_v1 & check_bit) != 0)\n            else:\n                self._state.SetFlagO(False)'
+          new = '            if set_flags:\n                self._state.SetFlagA(False)\n                if count == 1:\n                    self._state.SetFlagO((org_v1 & check_bit) != 0)\n                else:\n                    self._state.SetFlagO(False)'
+          assert source.count(old) == 1
+          source = source.replace(old, new)
+          old = '            set_flags = count != 0\n            if set_flags:\n                self._state.SetFlagO(False)\n\n            self._state.SetFlagA(False)'
+          new = '            set_flags = count != 0\n            if set_flags:\n                self._state.SetFlagO(False)\n                self._state.SetFlagA(False)'
+          assert source.count(old) == 1
+          source = source.replace(old, new)
+          data = source.encode()
+          assert blob_hash(data) == '2ed7866063f9d02b63ee31f4b68b3cd8ea9cfd76'
+          path.write_bytes(data)
+      - run: python -m pip install pytest
+      - run: python -m pytest -q
+      - name: Commit only validated CPU implementation
+        run: |
+          git diff --check
+          git add -- i8088.py
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'Preserve all flags for zero-count 8088 shifts and rotates'
+          git push origin HEAD:refs/heads/fix/cpu-zero-count-flags-20260922b
