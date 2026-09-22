@@ -158,7 +158,7 @@ class i8237(device.Device):
 
         addr = self._channel_address_register[channel].GetValue()
         full_addr = (self._channel_page[channel] << 16) | addr
-        addr += 1
+        addr += -1 if self._channel_mode[channel] & 0x20 else 1
         self._channel_address_register[channel].SetValue(addr & 0xffff)
 
         rc = self._b.ReadByte(full_addr)[0]
@@ -190,7 +190,7 @@ class i8237(device.Device):
 
         addr = self._channel_address_register[channel].GetValue()
         full_addr = (self._channel_page[channel] << 16) | addr
-        addr += 1
+        addr += -1 if self._channel_mode[channel] & 0x20 else 1
         self._channel_address_register[channel].SetValue(addr & 0xffff)
 
         self._b.WriteByte(full_addr, value)
