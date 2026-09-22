@@ -73,16 +73,24 @@ def _check_pic_layout(pic):
         raise ValueError('PIC layout changed; update snapshot schema')
 
 
+def _validate_pic(fields):
+    _validate(fields, PIC)
+    # Every ISR writer refreshes this cached value, including initialization.
+    highest = next((irq for irq in range(8) if fields['isr'] & (1 << irq)), -1)
+    if fields['int_in_service'] != highest:
+        raise ValueError('PIC service cache disagrees with ISR')
+
+
 def dump_pic_state(pic):
     _check_pic_layout(pic)
     fields = {name: getattr(pic, '_' + name) for name in PIC}
-    _validate(fields, PIC)
+    _validate_pic(fields)
     return _envelope('i8259', fields)
 
 
 def load_pic_state(payload):
     fields = _unpack(payload, 'i8259')
-    _validate(fields, PIC)
+    _validate_pic(fields)
     pic = i8259()
     _check_pic_layout(pic)
     for name, value in fields.items():
@@ -126,8 +134,17 @@ def load_pit_state(payload):
         'irq_nr': lambda v: _integer(v, 0, 7),
         'timers': lambda v: type(v) is list and len(v) == 3,
     })
-    for timer in fields['timers']:
+    for channel, timer in enumerate(fields['timers']):
         _validate(timer, TIMER)
+        width = (0, 1, 1, 2)[timer['latch_type']]
+        if timer['latch_n'] != width:
+            raise ValueError('PIT byte width disagrees with access mode')
+        # Reads before programming can underflow the initial zero phase; keep
+        # that existing behavior. Programmed modes always cycle through 1..N.
+        if width and not 1 <= timer['latch_n_cur'] <= width:
+            raise ValueError('PIT byte phase disagrees with access mode')
+        if channel != 0 and timer['is_pending']:
+            raise ValueError('only PIT channel zero sets is_pending')
     pit = i8253()
     _check_pit_layout(pit)
     pit._clock = fields['clock']

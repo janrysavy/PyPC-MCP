@@ -59,6 +59,15 @@ def fixture(kind):
     assert pit.IO_Read(0x40) == 1  # Hold latched high byte across capture.
     pit.IO_Write(0x43, 0xb4)
     pit.IO_Write(0x42, 0x34)  # Half of a two-byte divisor write.
+    if kind == 'bcd_msb':
+        pit.IO_Write(0x43, 0x15)  # BCD, mode 2, low-byte access.
+        pit.IO_Write(0x40, 9)
+        pit.Tick(12, 0)
+        pit.IO_Read(0x40)  # Set nonzero counter_prv and consume host RNG.
+        assert pit._timers[0].counter_prv == 6
+        pit.IO_Write(0x43, 0xa4)  # Channel 2, MSB-only access.
+        pit.IO_Write(0x42, 0x12)
+        pic.IO_Write(0x20, 0x63)  # Specific EOI: level 3, OCW2=0x63.
     return pit, pic
 
 
@@ -78,6 +87,11 @@ def replay(pit, pic, kind):
         reads.append(pic.GetPendingInterrupt())
         pic.SetIRQBeingServiced(2)
         reads += [pic.IO_Read(0x20), pic.GetInterruptOffset()]
+    elif kind == 'bcd_msb':
+        reads += [pit.IO_Read(0x42), pit.IO_Read(0x40),
+                  pic.GetInterruptLevel(), pic.GetPendingInterrupt()]
+        for clocks in (1, 8, 11, 12, 24, 48):
+            reads += [pit.Tick(clocks, 0), pit.IO_Read(0x40), pit.IO_Read(0x42)]
     else:
         reads.append(pit.IO_Read(0x40))  # Pending latched high byte.
         pit.IO_Write(0x42, 0x12)  # Complete the interrupted divisor write.
@@ -122,7 +136,7 @@ print(json.dumps(replay(pit, pic, data['kind'])))
     return json.loads(result.stdout)
 
 
-@pytest.mark.parametrize('kind', ['active', 'initializing'])
+@pytest.mark.parametrize('kind', ['active', 'initializing', 'bcd_msb'])
 def test_fresh_process_replays_ports_events_and_rng(kind):
     pit, pic = fixture(kind)
     saved = capture(pit, pic)
@@ -132,9 +146,13 @@ def test_fresh_process_replays_ports_events_and_rng(kind):
         assert expected['reads'][:5] == [0, True, 0, 9, 3]
         assert expected['final']['pit']['fields']['timers'][2]['counter_ini'] == 0x1234
         assert sum(expected['refresh']) > 0
-    else:
+    elif kind == 'initializing':
         assert expected['reads'] == [2, 0, 0x40]
         assert expected['final']['pic']['fields']['auto_eoi'] is True
+    else:
+        assert expected['reads'][:4] == [0x12, 6, 3, 3]
+        assert saved['pic']['fields']['ocw2'] == 0x63
+        assert saved['pit']['fields']['timers'][0]['is_bcd'] is True
 
 
 @pytest.mark.parametrize('mutation', ['clock', 'irr', 'rng'])
@@ -171,8 +189,9 @@ def test_raw_negative_counter_and_integer_defaults_are_preserved():
 def test_rng_gaussian_cache_and_decode_do_not_mutate_global_state():
     random.seed(1234)
     random.gauss(0, 1)  # Fill cached second Gaussian.
-    saved = dump_host_rng_state()
     before = random.getstate()
+    saved = dump_host_rng_state()
+    assert random.getstate() == before
     loaded = load_host_rng_state(json.loads(json.dumps(saved)))
     assert random.getstate() == before
     assert loaded.getstate() == before
@@ -185,9 +204,13 @@ def test_rng_gaussian_cache_and_decode_do_not_mutate_global_state():
     ('pit', lambda p: p['fields']['timers'][2].update(latched_count=-1)),
     ('pit', lambda p: p['fields']['timers'][2].update(is_running=2)),
     ('pit', lambda p: p['fields']['timers'][2].pop('counter_prv')),
+    ('pit', lambda p: p['fields']['timers'][2].update(latch_type=1)),
+    ('pit', lambda p: p['fields']['timers'][2].update(latch_n_cur=0)),
+    ('pit', lambda p: p['fields']['timers'][2].update(is_pending=True)),
     ('pic', lambda p: p['fields'].update(irr=True)),
     ('pic', lambda p: p['fields'].update(ii_icw4=1)),
     ('pic', lambda p: p['fields'].update(int_in_service=-2)),
+    ('pic', lambda p: p['fields'].update(isr=0, int_in_service=7)),
     ('rng', lambda p: p['fields']['words'].__setitem__(624, 625)),
     ('rng', lambda p: p['fields']['words'].__setitem__(0, -1)),
     ('rng', lambda p: p['fields'].update(gauss_next='0.5')),
@@ -236,3 +259,11 @@ def test_unknown_class_default_refuses_export_and_load(monkeypatch):
         dump_pit_state(pit)
     with pytest.raises(ValueError, match='layout changed'):
         load_pit_state(saved)
+
+
+def test_unprogrammed_read_phase_underflow_remains_serializable():
+    pit = i8253()
+    pit.IO_Read(0x40)
+    assert pit._timers[0].latch_n_cur == 65535
+    saved = dump_pit_state(pit)
+    assert dump_pit_state(load_pit_state(saved)) == saved
