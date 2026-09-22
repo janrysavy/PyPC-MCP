@@ -47,7 +47,7 @@ class ListenerPortTests(unittest.TestCase):
             try:
                 self.exercise_process()
                 return
-            except OSError:
+            except ConnectionError:
                 if attempt == 2:
                     raise
 
@@ -101,8 +101,13 @@ class ListenerPortTests(unittest.TestCase):
                     for port, banner in ((ports[1], b'\xff\xf4\x25'),
                                          (ports[2], b'RFB 003.008\n')):
                         with socket.create_connection(('127.0.0.1', port), timeout=3) as client:
-                            with client.makefile('rb') as stream:
-                                self.assertEqual(stream.read(len(banner)), banner)
+                            received = bytearray()
+                            while len(received) < len(banner):
+                                chunk = client.recv(len(banner) - len(received))
+                                if not chunk:
+                                    raise ConnectionError('listener closed before greeting completed')
+                                received.extend(chunk)
+                            self.assertEqual(received, banner)
                 finally:
                     process.terminate()
                     try:
