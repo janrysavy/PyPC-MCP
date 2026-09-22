@@ -207,6 +207,7 @@ class VNCServer:
         self._key_map[0xff57] = ( 0x4f, )  # end
         self._key_map[0xff56] = ( 0xe0, 0x51 )  # page down
         self._key_map[0xff55] = ( 0xe0, 0x49 )  # page up
+        self._key_map[0xff14] = ( 0x46, )  # Scroll Lock (X11 keysym -> XT scan code)
 
 
         _thread = threading.Thread(target=self.VNCServerThread, args=(port, ))
