@@ -10,7 +10,7 @@ class i8259(device.Device):
         self._imr = 255  # all irqs masked (disabled)
         self._auto_eoi = False
         self._irq_request_level = 7  # default value? TODO
-        self._read_irr = False
+        self._read_irr = True
         self._has_slave = False
         self._int_in_service = -1  # used by EOI
 
@@ -144,6 +144,7 @@ class i8259(device.Device):
                 self._ii_icw4 = False
                 self._ii_icw4_req = (value & 1) == 1
 
+                self._read_irr = True  # Initialization selects IRR for command-port reads.
                 self._imr = 0  # TODO 255?
                 self._isr = 0
                 self._clear_requests(0xff)
@@ -152,7 +153,9 @@ class i8259(device.Device):
 
             else:  # OCW 2/3
                 if (value & 8) == 8:  # OCW3
-                    self._read_irr = (value & 3) == 2
+                    # RR gates RIS: an OCW3 without RR must preserve the selector.
+                    if value & 2:
+                        self._read_irr = (value & 1) == 0
                     self._ocw3 = value
                 else:  # OCW2
                     self._irq_request_level = value & 7
