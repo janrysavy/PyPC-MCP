@@ -23,6 +23,7 @@ import vncspeed
 import vga
 import xtide
 import virtualfat16
+from biosservice import VGAInterruptService
 
 
 def ParseArguments():
@@ -139,10 +140,7 @@ try:
     state.SetCS(0xf000)
     state.SetIP(0xfff0)
     if arguments.video == 'vga':
-        p.SetInterruptServiceHook(
-            lambda number, cpu_state:
-                number == 0x10 and cpu_state.GetCS() != 0xf000 and
-                scr.BiosInterrupt(cpu_state))
+        p.SetInterruptServiceHook(VGAInterruptService(scr))
 
     t = telnet.Telnet(arguments.telnet_port, kb, scr)
     vnc_display = (vncspeed.SpeedDisplay(scr, state.GetClock)

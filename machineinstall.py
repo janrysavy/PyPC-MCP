@@ -5,6 +5,7 @@ Only use a detached CPU returned by machinecodec.prepare_machine. Installation
 consumes its state: the detached CPU must not subsequently execute.
 """
 import random
+from biosservice import VGAInterruptService
 
 
 def install_machine(live, prepared, rng):
@@ -46,8 +47,7 @@ def install_machine(live, prepared, rng):
         live.SetInterruptServiceHook(None)
     else:
         video = live._devices[3]
-        live.SetInterruptServiceHook(lambda number, registers:
-            number == 0x10 and registers.GetCS() != 0xf000 and video.BiosInterrupt(registers))
+        live.SetInterruptServiceHook(VGAInterruptService(video))
     live._stop_reason = ''
     live._memory_access_stop = None
     live._interrupt_stop = None

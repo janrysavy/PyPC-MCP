@@ -58,3 +58,14 @@ trace/state after restoring into the same live objects, and incompatible
 motherboards are refused without changing the source. All fifteen focused
 machine/container/installation tests pass. This primitive is not yet wired to
 RPC or running transports; those synchronization and restart tests remain open.
+
+## Review corrections
+
+Capture now rejects arbitrary BIOS callbacks instead of silently replacing
+one during restoration. `biosservice.VGAInterruptService` is the shared,
+identifiable implementation used by main, reconstruction and installation.
+Capture also rejects more than two disks, matching the restore contract.
+Tests now cover ROM reads, a real restored INT 10h mode query, a two-disk
+motherboard with a host-directory disk, checked reference disks, and all
+bus/PIC/DMA/keyboard links. Eighteen focused cases pass. These address the
+independent review of the initial library; live RPC remains the next slice.

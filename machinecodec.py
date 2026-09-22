@@ -15,6 +15,7 @@ import keyboard
 import rom
 import vga
 import xtide
+from biosservice import VGAInterruptService
 from diskcodec import dump_disk_state, validate_disk_state, restore_disk_state
 from statecodec import dump_cpu_state, load_cpu_state
 from timingcodec import (dump_pic_state, load_pic_state, dump_pit_state, load_pit_state,
@@ -53,6 +54,11 @@ def capture_machine(cpu, *, bios_service=False, disk_mode='auto'):
         raise ValueError('BIOS hook configuration mismatch')
     if bios_service and type(devices[3]) is not vga.VGA:
         raise ValueError('BIOS service requires VGA')
+    if bios_service and (type(cpu._interrupt_service_hook) is not VGAInterruptService
+                         or vars(cpu._interrupt_service_hook) != {'video': devices[3]}):
+        raise ValueError('unsupported BIOS service hook')
+    if not 0 <= len(devices[4]._disks) <= 2:
+        raise ValueError('unsupported disk inventory')
     buffers = {'ram': bytes(cpu._b._m._m)}
     video, video_buffers = dump_video_state(devices[3])
     buffers.update({'video/'+k: v for k,v in video_buffers.items()})
@@ -152,8 +158,7 @@ def prepare_machine(manifest, buffers, disk_root, references=None):
     dma._b = motherboard
     cpu._io._i8237.__dict__.update(dma.__dict__)
     if config['bios_service']:
-        cpu.SetInterruptServiceHook(lambda number, registers:
-            number == 0x10 and registers.GetCS() != 0xf000 and video.BiosInterrupt(registers))
+        cpu.SetInterruptServiceHook(VGAInterruptService(video))
     disk_root = Path(disk_root)
     disk_root.mkdir(parents=False, exist_ok=False)
     controller._disks = [restore_disk_state(disk, payloads[i], disk_root/('disk'+str(i)), references.get(i))

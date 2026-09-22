@@ -53,6 +53,61 @@ def test_coordinated_continuation(tmp_path):
     assert restored._devices[0]._i8237 is restored._io._i8237
     assert restored._devices[1]._pic is restored._io._pic
     assert restored._devices[2]._kb is restored._devices[1]
+    for index in range(6):
+        assert restored._devices[index]._b is restored._b
+    for index in range(4):
+        assert restored._devices[index]._pic is restored._io._pic
+
+
+def test_custom_bios_hook_and_excess_disks_are_refused(tmp_path):
+    cpu = machine(tmp_path)
+    cpu.SetInterruptServiceHook(lambda number, state: True)
+    with pytest.raises(ValueError, match='unsupported BIOS'):
+        capture_machine(cpu, bios_service=True)
+    cpu.SetInterruptServiceHook(None)
+    cpu._devices[4]._disks *= 3
+    with pytest.raises(ValueError, match='disk inventory'):
+        capture_machine(cpu)
+
+
+def test_rom_bios_and_two_disk_reconstruction(tmp_path):
+    import rom
+    from biosservice import VGAInterruptService
+    from virtualfat16 import HostDirectoryFAT16
+    from machineinstall import install_machine
+    cpu = machine(tmp_path)
+    host = tmp_path/'host'; host.mkdir()
+    (host/'PYRO.DAT').write_bytes(b'live host data')
+    cpu._devices[4] = xtide.XTIDE([cpu._devices[4]._disks[0], HostDirectoryFAT16(host)])
+    # Build real motherboard links after substituting the two-disk controller.
+    devices = cpu._devices[:5]
+    rom_path = tmp_path/'rom.bin'; rom_path.write_bytes(bytes(range(256))*32)
+    rom_device = rom.Rom(str(rom_path), 0xfe000)
+    motherboard = bus.Bus(1048576, devices, [rom_device])
+    cpu = i8088.i8088(motherboard, devices, True)
+    cpu.SetInterruptServiceHook(VGAInterruptService(devices[3]))
+    cpu.GetState().SetCS(0x1000)
+    original = capture_machine(cpu, bios_service=True)
+    restored, rng = prepare_machine(*original, tmp_path/'restored')
+    assert restored._b.ReadByte(0xfe07b) == cpu._b.ReadByte(0xfe07b)
+    assert restored._interrupt_service_hook.video is restored._devices[3]
+    install_machine(cpu, restored, rng)
+    assert cpu._interrupt_service_hook.video is cpu._devices[3]
+    assert capture_machine(cpu, bios_service=True) == original
+    # A real INT 10h mode query must use the restored video adapter.
+    cpu.GetState().SetAX(0x0f00)
+    assert cpu._interrupt_service_hook(0x10, cpu.GetState())
+    assert cpu.GetState().GetAX() == 0x5003
+    assert (cpu._devices[4]._disks[1].directory/'PYRO.DAT').read_bytes() == b'live host data'
+
+
+def test_reference_disk_machine(tmp_path):
+    cpu = machine(tmp_path)
+    reference = cpu._devices[4]._disks[0]
+    manifest, buffers = capture_machine(cpu, disk_mode='reference')
+    restored, rng = prepare_machine(manifest, buffers, tmp_path/'restored', {0: reference})
+    random.setstate(rng.getstate())
+    assert capture_machine(restored, disk_mode='reference') == (manifest, buffers)
 
 
 @pytest.mark.parametrize('damage', ['ram','source','pit','disk','extra'])
