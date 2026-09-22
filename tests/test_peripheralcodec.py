@@ -171,14 +171,20 @@ def test_input_fresh_process_preserves_queue_and_irq_delays(reset):
     assert fresh_process(bad)['reads'] != expected['reads']
 
 
-def test_keyboard_capture_cannot_observe_half_enqueued_input(monkeypatch):
+@pytest.mark.parametrize('synchronized', [True, False])
+def test_keyboard_capture_cannot_observe_half_enqueued_input(monkeypatch, synchronized):
     kb = Keyboard()
     queued, release, attempt, finished = (threading.Event() for _ in range(4))
     lock = kb._state_lock
+    blocked = []
     class ObservedLock:
         def __enter__(self):
             if threading.current_thread().name == 'snapshot':
+                acquired = lock.acquire(blocking=False)
+                blocked.append(not acquired)
                 attempt.set()
+                if acquired:
+                    return
             lock.acquire()
         def __exit__(self, *args):
             lock.release()
@@ -193,7 +199,11 @@ def test_keyboard_capture_cannot_observe_half_enqueued_input(monkeypatch):
     results, errors = [], []
     def producer():
         try:
-            kb.PushKeyboardScancode(42)
+            if synchronized:
+                kb.PushKeyboardScancode(42)
+            else:
+                # Negative control: deliberately bypass the enqueue lock.
+                kb.PushKeyboardScancode.__wrapped__(kb, 42)
         except BaseException as error:
             errors.append(error)
     def snapshot():
@@ -210,7 +220,11 @@ def test_keyboard_capture_cannot_observe_half_enqueued_input(monkeypatch):
         assert queued.wait(5)
         reader.start()
         assert attempt.wait(5)
-        assert not finished.is_set()
+        assert blocked == [synchronized]
+        if synchronized:
+            assert not finished.is_set()
+        else:
+            assert finished.wait(5)
     finally:
         release.set()
         writer.join(5)
@@ -219,7 +233,8 @@ def test_keyboard_capture_cannot_observe_half_enqueued_input(monkeypatch):
     assert not writer.is_alive() and not reader.is_alive()
     assert errors == []
     fields = results[0]['fields']
-    assert (fields['pressed'], fields['queue'], fields['next_interrupt']) == ([42], [42], [4770])
+    assert (fields['pressed'], fields['queue'], fields['next_interrupt']) == (
+        [42], [42], [4770] if synchronized else [])
 
 
 @pytest.mark.parametrize('kind,mutation', [
