@@ -138,6 +138,14 @@ def _validate_manifest(manifest, buffers):
     if kind != 'mda':
         spec['crtc'] = lambda v: _array(v, 18)
     _validate(fields, spec)
+    if kind == 'vga':
+        # BIOS/register inference selects G320 for 13h, but the inherited
+        # CGA mode port selects G640 for the same byte. Both are reachable.
+        modes = {0x12: (3,), 0x13: (2, 3)}
+        if fields['graphics_mode'] in modes and fields['cga_mode'] not in modes[fields['graphics_mode']]:
+            raise ValueError('inconsistent VGA graphics/CGA modes')
+        # Do not require frame height to match the mode: port 3D8 changes
+        # the mode without resizing cached pixels; GetFrame does that later.
     sizes = _buffer_sizes(kind, fields)
     descriptors = manifest['buffers']
     if (type(buffers) is not dict or set(buffers) != set(sizes)

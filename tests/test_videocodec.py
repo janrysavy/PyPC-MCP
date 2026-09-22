@@ -200,3 +200,57 @@ def test_detached_buffers_and_layout_guard():
     video._new_latch = 1
     with pytest.raises(ValueError, match='layout changed'):
         dump_video_state(video)
+
+
+@pytest.mark.parametrize('mode', [0x12, 0x13])
+def test_cga_port_mode_transition_preserves_cached_frame_until_render(mode):
+    video = VGA(False)
+    video.IO_Write(0x3d8, mode)
+    manifest, buffers = dump_video_state(video)
+    assert manifest['fields']['gf_height'] == 400
+    assert manifest['fields']['cga_mode'] == 3
+    assert fresh(manifest, buffers, 'planar' if mode == 0x12 else 'chain4') == replay(
+        video, 'planar' if mode == 0x12 else 'chain4')
+
+
+@pytest.mark.parametrize('mode', [0x12, 0x13])
+def test_graphics_mode_with_text_enum_is_rejected(mode):
+    manifest, buffers = dump_video_state(VGA(False))
+    manifest['fields']['graphics_mode'] = mode
+    with pytest.raises(ValueError, match='inconsistent VGA'):
+        load_video_state(manifest, buffers)
+
+
+@pytest.mark.parametrize('lost', ['display', 'cursor', 'crtc', 'sequencer',
+                                 'graphics', 'dac_read', 'clock', 'scanline'])
+def test_additional_lost_state_changes_observable_continuation(lost):
+    kind = ('cga' if lost in ('clock', 'scanline') else
+            'planar' if lost in ('sequencer', 'graphics') else 'text')
+    video = fixture(kind, write_mode=0)
+    if lost in ('cursor', 'crtc'):
+        video.WriteByte(0xb8004, 32)  # Cursor must contrast with its cell.
+        video.WriteByte(0xb8005, 0x0e)
+    manifest, buffers = dump_video_state(video)
+    expected = replay(video, kind)
+    fields = manifest['fields']
+    if lost == 'display':
+        fields['display_address'] = 0
+        fields['crtc'][13] = 0
+    elif lost == 'cursor':
+        fields['cursor_location'] = 0
+        fields['crtc'][15] = 0
+    elif lost == 'crtc':
+        fields['crtc'][10] = 0x20  # Disable the cursor.
+    elif lost == 'sequencer':
+        fields['sequencer'][2] = 0  # Mask all plane writes.
+    elif lost == 'graphics':
+        fields['graphics'][8] = 0  # Preserve latched bits instead of host byte.
+    elif lost == 'dac_read':
+        fields['dac_read_component'] = 0
+    elif lost == 'clock':
+        fields['clock'] += 100  # Move out of horizontal retrace.
+    elif lost == 'scanline':
+        fields['palette_index'][0] = 0  # Scan line 16 is visible row zero.
+    actual = fresh(manifest, buffers, kind)
+    observed = ('ports', 'memory', 'frames')
+    assert [actual[k] for k in observed] != [expected[k] for k in observed]
