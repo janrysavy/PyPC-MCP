@@ -19,6 +19,7 @@ class i8253(device.Device):
         counter_cur: int = 0
         counter_prv: int = 0
         counter_ini: int = 0
+        latched_count: int | None = None
         mode: int = 0
         latch_type: int = 0
         latch_n: int = 0
@@ -140,23 +141,25 @@ class i8253(device.Device):
         return self._timers[nr].counter_cur & 0xff
 
     def GetCounter(self, nr: int) -> int:
+        timer = self._timers[nr]
+        snapshot = timer.latched_count
+        count = timer.counter_cur if snapshot is None else snapshot
         rc = 0
 
-        if self._timers[nr].latch_type == 1:
-            rc = self.AddNoiseToLSB(nr)
-        elif self._timers[nr].latch_type == 2:
-            rc = (self._timers[nr].counter_cur >> 8) & 0xff
-        elif self._timers[nr].latch_type == 3:
-            if self._timers[nr].latch_n_cur == 2:
-                rc = self.AddNoiseToLSB(nr)
-            else:
-                rc = (self._timers[nr].counter_cur >> 8) & 0xff
+        low_byte = timer.latch_type == 1 or (
+            timer.latch_type == 3 and timer.latch_n_cur == 2)
+        high_byte = timer.latch_type == 2 or (
+            timer.latch_type == 3 and timer.latch_n_cur != 2)
+        if low_byte:
+            rc = self.AddNoiseToLSB(nr) if snapshot is None else count & 0xff
+        elif high_byte:
+            rc = (count >> 8) & 0xff
 
-        self._timers[nr].latch_n_cur -= 1
-        self._timers[nr].latch_n_cur &= 0xffff
-
-        if self._timers[nr].latch_n_cur == 0:
-            self._timers[nr].latch_n_cur = self._timers[nr].latch_n
+        # Retain the 8253's existing shared read/write byte phase.
+        timer.latch_n_cur = (timer.latch_n_cur - 1) & 0xffff
+        if timer.latch_n_cur == 0:
+            timer.latch_n_cur = timer.latch_n
+            timer.latched_count = None
 
         return rc
 
@@ -166,7 +169,17 @@ class i8253(device.Device):
         mode  = (v >> 1) & 7
         type  = v & 1
 
+        if latch == 0:
+            # A pending snapshot is held until its entire programmed read.
+            # RL=00 does not change mode, BCD, access width, or byte phase.
+            if nr < 3:
+                timer = self._timers[nr]
+                if timer.latched_count is None and timer.latch_type != 0:
+                    timer.latched_count = timer.counter_cur & 0xffff
+            return
+
         if latch != 0:
+            self._timers[nr].latched_count = None
             self._timers[nr].mode = mode
             self._timers[nr].latch_type = latch
             self._timers[nr].is_running = False
