@@ -118,6 +118,16 @@ def test_invalid_references_refused_before_disk_creation(tmp_path, references):
     assert not (tmp_path/'restored').exists()
 
 
+@pytest.mark.parametrize('descriptor', [None, [], 'disk', 1])
+def test_malformed_referenced_disk_is_a_validation_error(tmp_path, descriptor):
+    cpu = machine(tmp_path)
+    manifest, buffers = capture_machine(cpu)
+    manifest['disks'][0] = descriptor
+    with pytest.raises(ValueError, match='references'):
+        prepare_machine(manifest, buffers, tmp_path/'restored', {0:cpu._devices[4]._disks[0]})
+    assert not (tmp_path/'restored').exists()
+
+
 @pytest.mark.parametrize('damage', ['ram','source','pit','disk','extra'])
 def test_bad_machine_never_materializes_disks(tmp_path, damage):
     original = machine(tmp_path); before, raw = capture_machine(original)

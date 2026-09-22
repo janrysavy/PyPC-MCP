@@ -129,6 +129,7 @@ def prepare_machine(manifest, buffers, disk_root, references=None):
     if (type(references) is not dict
             or any(type(k) is not int or not 0 <= k < len(manifest['disks'])
                    or type(v) is not str or not v
+                   or type(manifest['disks'][k]) is not dict
                    or manifest['disks'][k].get('kind') != 'file'
                    or manifest['disks'][k].get('mode') != 'reference'
                    for k,v in references.items())):
