@@ -158,6 +158,8 @@ class i8237(device.Device):
         elif addr == 0x0c:  # reset flipflop
             self._ff.reset()
         elif addr == 0x0d:  # master reset
+            self._command = 0
+            self._dma_enabled = True
             self.reset_masks(True)
             self._ff.reset()
             for i in range(4):
