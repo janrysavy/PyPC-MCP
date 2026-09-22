@@ -739,3 +739,34 @@ API, classified for this PyPC transport:
 
 Deferred methods are intentionally omitted from the `methods` capability list and
 currently return JSON-RPC `-32601`.
+
+## Persistent machine snapshots
+
+Both methods require a paused machine and `expected_state_revision` equal to
+`session.status.state_revision`. Paths name files on the emulator host.
+
+- `machine.snapshot.export`: `path` must be a new file. Optional `disk_mode`
+  is `auto` (default), `embed`, or `reference`. Returns archive `sha256` and
+  current `state_revision`. The ZIP contains JSON plus hashed binary payloads.
+- `machine.snapshot.import`: `path`, new `disk_root` directory, optional archive
+  `sha256`, and optional `references` mapping string disk indices `0`/`1` to
+  source image paths. Referenced images must match saved size and SHA-256.
+  Returns the new revision and `machine_snapshot_restored` stop reason.
+
+Import reconstructs CPU/RAM/ROM/device state, host RNG, disk bytes and host-FAT
+synchronization state. It remains paused; execution resumes only by a later
+execution request. Restored disks use new paths under `disk_root`. No existing
+disk is overwritten. Input/display locks exclude frontend mutation during the
+state transaction; external filesystem writers must be stopped by the caller.
+Emulator source hashes must match and the live video adapter type must match.
+
+Debugger breakpoints remain configured. Pending operations, instruction and
+hardware trace journals and retained video snapshots are cleared. Revision and
+operation identifiers remain host-session identities and are not rewound.
+The VNC frame cache is invalidated with a new display epoch. Network sessions
+are not serialized. Live external input after restore changes subsequent play.
+
+Bundles have a 1 GiB total uncompressed data limit and a 4 MiB JSON limit.
+Malformed bundles/hashes are rejected before live installation. Disk I/O failure
+can leave a partial new output directory; the live machine stays unchanged.
+Host ACLs, permissions, timestamps and external applications are not captured.

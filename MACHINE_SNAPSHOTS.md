@@ -69,3 +69,13 @@ Tests now cover ROM reads, a real restored INT 10h mode query, a two-disk
 motherboard with a host-directory disk, checked reference disks, and all
 bus/PIC/DMA/keyboard links. Eighteen focused cases pass. These address the
 independent review of the initial library; live RPC remains the next slice.
+
+## RPC integration
+
+`machine.snapshot.export/import` now coordinate stopped-machine capture and
+installation. VNC and Telnet use a locked display proxy; keyboard input uses its
+existing lock. Restore retains live objects, bumps the display epoch and clears
+stale host debugger operations/traces/video snapshots. Four production-handler
+tests pass, covering replay equality, register bindings, VNC invalidation and
+running/revision/hash rejection. Live socket and Pyro restart evidence is still
+pending; earlier library-only wording above describes the earlier stage.
