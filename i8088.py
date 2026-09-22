@@ -708,6 +708,7 @@ class i8088:
                     self.InvokeInterrupt(self._state._ip, irq, True)
                     cycle_count += 60
                     self._state._clock += cycle_count
+                    self._io.Tick(cycle_count, self._state._clock)
 
                     return cycle_count
 
