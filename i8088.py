@@ -1360,7 +1360,8 @@ class i8088:
         if (opcode & 2) == 2:
             count = self._state._cl
 
-        count_1_of = opcode in (0xd0, 0xd1, 0xd2, 0xd3)
+        # A zero CL preserves all flags, including OF on rotates.
+        count_1_of = count != 0 and opcode in (0xd0, 0xd1, 0xd2, 0xd3)
 
         oldSign = (v1 & 0x8000 if word else v1 & 0x80) != 0
 
@@ -1466,12 +1467,12 @@ class i8088:
 
             set_flags = count != 0
 
-            self._state.SetFlagA(False)
-
-            if count == 1:
-                self._state.SetFlagO((org_v1 & check_bit) != 0)
-            else:
-                self._state.SetFlagO(False)
+            if set_flags:
+                self._state.SetFlagA(False)
+                if count == 1:
+                    self._state.SetFlagO((org_v1 & check_bit) != 0)
+                else:
+                    self._state.SetFlagO(False)
 
             cycle_count += count * 4
 
@@ -1515,8 +1516,7 @@ class i8088:
             set_flags = count != 0
             if set_flags:
                 self._state.SetFlagO(False)
-
-            self._state.SetFlagA(False)
+                self._state.SetFlagA(False)
 
             cycle_count += 2
 
