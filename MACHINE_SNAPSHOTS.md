@@ -15,7 +15,11 @@ returned RNG, install the machine atomically, and invalidate host display caches
 before resuming guest execution. Disk materialization failures can leave only
 new partial directories; existing sources and the live machine remain unchanged.
 
-This is not yet exposed by JSON-RPC and has no persistent bundle container.
+This is not yet exposed by JSON-RPC. `checkpointbundle.py` stores JSON and hashed
+binary buffers in a bounded ZIP container; it never extracts archive paths.
+Duplicate members/JSON keys, unknown members and bad hashes are refused. Export
+requires a new file; import hashes and parses the same bytes, avoiding a second
+path read between the hash check and parsing.
 Do not claim usable gameplay checkpoints or a restart of the running Pyro
 session from these library tests. The live process still runs its prior code.
 Debugger breakpoints/traces/operation identifiers and host network connections
@@ -30,9 +34,11 @@ queued keyboard input and a partially supplied XTIDE write. After reconstruction
 200 instructions produce the same memory trace and all captured state/buffer
 hashes; completing the pending disk write produces the same bytes.
 
-The same comparison passes in a fresh Python subprocess. Five negative controls
+The same comparison passes from an exported bundle in a fresh Python subprocess.
+Six container tests add real-machine round-trip and malformed-archive controls;
+all thirteen machine/container tests pass. Five negative controls
 damage RAM, source identity, PIT schema, disk identity or buffer inventory; all
 are refused before creating the destination directory, and the source machine
 capture remains identical. These tests establish this scenario, not exhaustive
-instruction/device/gameplay parity. Actual Pyro restart, persistent bundle I/O,
+instruction/device/gameplay parity. Actual Pyro restart,
 RPC integration, atomic installation and independent review remain required.

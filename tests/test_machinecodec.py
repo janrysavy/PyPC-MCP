@@ -70,21 +70,25 @@ def test_bad_machine_never_materializes_disks(tmp_path, damage):
 
 
 def test_fresh_process_machine_continuation(tmp_path):
+    from checkpointbundle import write_bundle
     original = machine(tmp_path)
     before, buffers = capture_machine(original)
     trace = run(original)
     expected, _ = capture_machine(original)
+    bundle = tmp_path/'saved.pypc'
+    digest = write_bundle(bundle, before, buffers)
     payload = tmp_path/'machine.json'
-    payload.write_text(json.dumps({'before':before, 'buffers':{k:v.hex() for k,v in buffers.items()},
+    payload.write_text(json.dumps({'bundle':str(bundle), 'sha256':digest,
                                    'expected':expected,'trace':trace}))
     code = '''import sys,typing,json,random
 if not hasattr(typing,'override'): typing.override=lambda f:f
 from pathlib import Path
 from machinecodec import prepare_machine,capture_machine
+from checkpointbundle import read_bundle
 sys.path.insert(0,'tests')
 from test_machinecodec import run
 data=json.loads(Path(sys.argv[1]).read_text())
-cpu,rng=prepare_machine(data['before'],{k:bytes.fromhex(v) for k,v in data['buffers'].items()},sys.argv[2])
+cpu,rng=prepare_machine(*read_bundle(data['bundle'],data['sha256']),sys.argv[2])
 random.setstate(rng.getstate())
 trace=run(cpu)
 assert json.loads(json.dumps(trace))==data['trace']
