@@ -30,8 +30,28 @@ host applications are not serialized. Exact continuation assumes ordinary
 writable experiment directories; this component does not claim filesystem
 metadata or arbitrary external-host equivalence.
 
-Validation: `python -m pytest tests/test_diskcodec.py -q` passes 16 cases,
+Validation: `python -m pytest tests/test_diskcodec.py -q` passes 19 cases,
 including an independent fresh-process load, identical write-through replay,
 reference mismatch, unexpected buffers, malformed sync state, duplicate paths,
 path traversal and refusal to overwrite an existing destination. Complete
 machine restart/continuation remains an explicit pending integration test.
+
+## Independent review resolution
+
+Review found that a forged guest-to-host mapping could redirect writes to a
+different filename. Validation now requires the host relative path to encode
+exactly the saved DOS path key; sync records must have a path mapping. Negative
+controls reject redirection and missing mappings before creating output.
+
+The request to rebuild/check sync signatures against current FAT contents was
+not applied: they are cached state and can legitimately differ during guest
+updates. A new test preserves a stale host-file mapping after deletion and a
+changed FAT sector, then observes identical file recreation on the next guest
+data write. Requiring the host file to exist would reject this restorable state.
+
+Flat images intentionally accept the string paths supported by XTIDE. Path
+objects are not valid XTIDE backing disks. XTIDE also deliberately zero-fills
+short image reads; controller geometry need not equal file size. This component
+does not claim live whole-machine/XTIDE integration, which remains pending.
+The source-level geometry concern therefore remains an integration test to run,
+not grounds for silently changing the existing disk read behavior.

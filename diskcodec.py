@@ -154,15 +154,18 @@ def validate_disk_state(manifest, buffers, reference=None):
             if type(item) is not dict or set(item) != {'key', 'path'}:
                 raise ValueError('invalid host path mapping')
             key = _key(item['key']); _relative(item['path'])
+            if tuple(HostDirectoryFAT16._dos_name(Path(part)) for part in item['path'].split('/')) != key:
+                raise ValueError('guest key and host path disagree')
             if key in seen:
                 raise ValueError('duplicate guest path')
             seen.add(key)
+        mapped = seen
         seen = set()
         for item in manifest['synced']:
             if type(item) is not dict or set(item) != {'key', 'size', 'chain'}:
                 raise ValueError('invalid sync record')
             key = _key(item['key'])
-            if (key in seen or type(item['size']) is not int or item['size'] < 0
+            if (key in seen or key not in mapped or type(item['size']) is not int or item['size'] < 0
                     or type(item['chain']) is not list
                     or any(type(c) is not int or not 2 <= c < 65528 for c in item['chain'])):
                 raise ValueError('invalid sync state')

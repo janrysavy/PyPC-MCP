@@ -64,7 +64,7 @@ def test_reference_mismatch_writes_nothing(tmp_path):
     assert not (tmp_path/'output').exists()
 
 
-@pytest.mark.parametrize('damage', ['hash','traversal','absolute','parent','duplicate','sync','extra','version','boolsize'])
+@pytest.mark.parametrize('damage', ['hash','traversal','absolute','parent','duplicate','sync','extra','version','boolsize','redirect','unmapped'])
 def test_invalid_host_payload_refused_before_writing(tmp_path, damage):
     manifest, buffers = dump_disk_state(fixture(tmp_path))
     manifest = copy.deepcopy(manifest); buffers = dict(buffers)
@@ -77,8 +77,27 @@ def test_invalid_host_payload_refused_before_writing(tmp_path, damage):
     elif damage == 'extra': buffers['unexpected'] = b''
     elif damage == 'version': manifest['version'] = True
     elif damage == 'boolsize': manifest['image']['size'] = True
+    elif damage == 'redirect': manifest['paths'][0]['path'] = 'MISSING.TXT'
+    elif damage == 'unmapped': manifest['paths'] = []
     with pytest.raises(ValueError): restore_disk_state(manifest, buffers, tmp_path/'output')
     assert not (tmp_path/'output').exists()
+
+
+def test_stale_host_and_fat_cache_are_preserved_not_rebuilt(tmp_path):
+    original = fixture(tmp_path)
+    (original.directory/'PYRO.DAT').unlink()
+    # A guest can modify a FAT sector before updating the directory entry.
+    fat = (original.partition_start + original.reserved_sectors)*512
+    original._image[fat+20:fat+22] = b'\xff\xff'
+    manifest, buffers = dump_disk_state(original)
+    restored = restore_disk_state(manifest, buffers, tmp_path/'restore')
+    assert not (restored.directory/'PYRO.DAT').exists()
+    assert restored._synced_files == original._synced_files
+    assert bytes(restored._image) == bytes(original._image)
+    start = original._image.index(b'original data')
+    for disk in (original, restored): disk.Write(start, b'changed! data')
+    assert host_files(restored.directory) == host_files(original.directory)
+    assert (restored.directory/'PYRO.DAT').read_bytes() == b'changed! data'
 
 
 def test_storage_policy_and_no_overwrite(tmp_path):
