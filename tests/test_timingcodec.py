@@ -90,6 +90,10 @@ def replay(pit, pic, kind):
     elif kind == 'bcd_msb':
         reads += [pit.IO_Read(0x42), pit.IO_Read(0x40),
                   pic.GetInterruptLevel(), pic.GetPendingInterrupt()]
+        pic.SetIRQBeingServiced(3)
+        reads.append(pic.IO_Read(0x20))
+        pic.IO_Write(0x20, 0x63)  # Replay specific EOI after restoration too.
+        reads += [pic.IO_Read(0x20), pic.GetPendingInterrupt()]
         for clocks in (1, 8, 11, 12, 24, 48):
             reads += [pit.Tick(clocks, 0), pit.IO_Read(0x40), pit.IO_Read(0x42)]
     else:
@@ -150,7 +154,7 @@ def test_fresh_process_replays_ports_events_and_rng(kind):
         assert expected['reads'] == [2, 0, 0x40]
         assert expected['final']['pic']['fields']['auto_eoi'] is True
     else:
-        assert expected['reads'][:4] == [0x12, 6, 3, 3]
+        assert expected['reads'][:7] == [0x12, 6, 3, 3, 8, 0, 5]
         assert saved['pic']['fields']['ocw2'] == 0x63
         assert saved['pit']['fields']['timers'][0]['is_bcd'] is True
 
