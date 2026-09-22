@@ -1,5 +1,6 @@
 import socket
 import struct
+import threading
 import unittest
 
 from vncspeed import SpeedDisplay
@@ -68,6 +69,63 @@ class SpeedTests(unittest.TestCase):
             display = Display(width, height)
             overlay = SpeedDisplay(display, lambda: 0, lambda: 0)
             self.assertEqual(len(overlay.GetFrame()[2]), width * height * 4)
+
+    def test_two_clients_cannot_interleave_version_and_render(self):
+        entered = threading.Event()
+        release = threading.Event()
+        second_sample = threading.Event()
+        original = self.overlay.GetFrameVersion
+        calls = []
+
+        def sample():
+            version = original()
+            calls.append(version)
+            if len(calls) == 1:
+                entered.set()
+                if not release.wait(2):
+                    raise TimeoutError('test did not release first renderer')
+            else:
+                second_sample.set()
+            return version
+
+        self.overlay.GetFrameVersion = sample
+        server = VNCServer.__new__(VNCServer)
+        server._display = self.overlay
+        server._compatible = False
+        errors = []
+        packets = []
+
+        class Stream:
+            def sendall(self, data):
+                packets.append(bytes(data))
+
+        def client():
+            session = VNCServer.VNCSession()
+            session.stream = Stream()
+            try:
+                server.VNCSendFrame(session)
+            except Exception as error:
+                errors.append(error)
+
+        first = threading.Thread(target=client)
+        second = threading.Thread(target=client)
+        first.start()
+        try:
+            self.assertTrue(entered.wait(1))
+            self.wall = 1
+            self.ticks = 4_770_000
+            second.start()
+            self.assertFalse(second_sample.wait(.05))
+        finally:
+            release.set()
+            first.join(2)
+            if second.ident is not None:
+                second.join(2)
+        self.assertFalse(first.is_alive() or second.is_alive())
+        self.assertEqual(errors, [])
+        self.assertEqual(calls, [1, 2])
+        self.assertEqual(len(packets), 4)
+        self.assertEqual([version for version, _ in server._frame_history], [1, 2])
 
     def test_standard_raw_incremental_packet_on_stationary_guest(self):
         server = VNCServer.__new__(VNCServer)
