@@ -101,7 +101,7 @@ KEYBOARD = {
     'kb_key_irq': lambda v: _integer(v, 0),
     'clock_low': _bool, '0x61_bits': _byte, 'last_scan_code': _byte,
     'clock': lambda v: _integer(v, 0),
-    'next_interrupt': lambda v: _array(v, None, _integer),
+    'next_interrupt': lambda v: _array(v, None, lambda delay: _integer(delay, 0)),
 }
 KEYBOARD_EXTRA = {'_keyboard_buffer', '_pressed_scancodes', '_state_lock', '_pic', '_b'}
 

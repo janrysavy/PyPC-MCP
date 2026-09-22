@@ -246,6 +246,7 @@ def test_keyboard_capture_cannot_observe_half_enqueued_input(monkeypatch, synchr
     ('keyboard', lambda p: p['fields'].update(queue=[256])),
     ('keyboard', lambda p: p['fields'].update(unfinished_tasks=0)),
     ('keyboard', lambda p: p['fields'].update(next_interrupt=[True])),
+    ('keyboard', lambda p: p['fields'].update(next_interrupt=[-1])),
     ('ppi', lambda p: p['fields'].update(dipswitches_high=1)),
 ])
 def test_malformed_state_rejected_without_mutating_source(kind, mutation):
@@ -289,3 +290,80 @@ def test_disabled_masked_dma_and_half_read_register_roundtrip():
     assert low == 0x34
     assert loaded.ReceiveFromChannel(0) == -1
     assert loaded.SendToChannel(0, 12) is False
+
+
+@pytest.mark.parametrize('action', ['read', 'irq', 'producer', 'reset'])
+def test_keyboard_operations_wait_for_enqueue(action, monkeypatch):
+    kb, pic = Keyboard(), i8259()
+    kb.SetPic(pic)
+    pic.IO_Write(0x21, 0)
+    queued, release, attempt = (threading.Event() for _ in range(3))
+    lock, blocked = kb._state_lock, []
+    class ObservedLock:
+        def __enter__(self):
+            if threading.current_thread().name == 'contender' and not blocked:
+                acquired = lock.acquire(blocking=False)
+                blocked.append(not acquired)
+                attempt.set()
+                if acquired:
+                    return
+            lock.acquire()
+        def __exit__(self, *args):
+            lock.release()
+    kb._state_lock = ObservedLock()
+    put = kb._keyboard_buffer.put
+    def blocked_put(value):
+        put(value)
+        if value == 42:
+            queued.set()
+            if not release.wait(5):
+                raise RuntimeError('producer was not released')
+    monkeypatch.setattr(kb._keyboard_buffer, 'put', blocked_put)
+    results, errors = [], []
+    def producer():
+        try:
+            kb.PushKeyboardScancode(42)
+        except BaseException as error:
+            errors.append(error)
+    def contender():
+        try:
+            if action == 'read':
+                results.append(kb.IO_Read(0x60))
+            elif action == 'irq':
+                kb.Tick(4770, 0)
+            elif action == 'producer':
+                kb.PushKeyboardScancode(30)
+            else:
+                kb.IO_Write(0x61, 0)
+                kb.IO_Write(0x61, 0x40)
+        except BaseException as error:
+            errors.append(error)
+    writer = threading.Thread(target=producer, daemon=True)
+    other = threading.Thread(target=contender, name='contender', daemon=True)
+    writer.start()
+    try:
+        assert queued.wait(5)
+        other.start()
+        assert attempt.wait(5)
+        assert blocked == [True]
+    finally:
+        release.set()
+        writer.join(5)
+        if other.ident is not None:
+            other.join(5)
+    assert not writer.is_alive() and not other.is_alive()
+    assert errors == []
+    state = dump_keyboard_state(kb)['fields']
+    if action == 'read':
+        assert results == [42]
+        assert state['queue'] == [] and state['next_interrupt'] == [4770]
+    elif action == 'irq':
+        assert pic.GetPendingInterrupt() == 1
+        assert state['queue'] == [42] and state['next_interrupt'] == []
+    elif action == 'producer':
+        assert state['pressed'] == [30, 42]
+        assert state['queue'] == [42, 30]
+        assert state['next_interrupt'] == [4770, 4770]
+    else:
+        assert state['queue'] == [170] and state['next_interrupt'] == [4770, 4770]
+        assert state['clock_low'] is False
