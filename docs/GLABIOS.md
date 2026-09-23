@@ -25,6 +25,12 @@ The ROM identifies itself as GLaBIOS `0.4.2`, dated `04/05/26`.
 source pin and file hashes, MASM/LINK hashes, DOSBox-X version, and output
 identity from the verified build.
 
+CI recursively fetches the public source submodule and refuses a source or ROM
+hash mismatch. It does not rebuild GLaBIOS: the byte-identical build uses the
+proprietary MASM 5/LINK binaries identified in the manifest. Repeating that
+build requires those exact tools; the deterministic NASM `PYPCVGA.ROM` bridge
+is rebuilt in public CI.
+
 ## VGA bridge
 
 XT switch bits `00` tell the BIOS that an EGA or VGA option ROM is responsible
