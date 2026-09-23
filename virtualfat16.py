@@ -1,6 +1,7 @@
 """A host-directory-backed FAT16 disk for the emulated XT-IDE bus."""
 
 from pathlib import Path
+import hashlib
 import os
 import struct
 import zlib
@@ -11,6 +12,9 @@ class HostDirectoryFAT16:
 
     The FAT16 structures and file data are cached in memory. Guest writes are
     synchronized to files below ``directory`` after each completed disk write.
+    Paths known at mount time or created by the guest are also reconciled after
+    guest rename and deletion. A tracked file is removed only when its host
+    bytes still match the last synchronized version; external edits are kept.
     The mount is restricted to DOS 8.3 names, which is suitable for legacy DOS
     programs.
     """
@@ -33,6 +37,7 @@ class HostDirectoryFAT16:
         self._image = bytearray(self.total_sectors * self.sector_size)
         self._host_paths = {}
         self._synced_files = {}
+        self._synced_hashes = {}
         self._build()
 
     @staticmethod
@@ -212,14 +217,17 @@ class HostDirectoryFAT16:
                 target = bytearray(len(entry['clusters']) * cluster_size)
                 self._write_directory(entry, target, parent_cluster)
                 for index, cluster in enumerate(entry['clusters']):
-                    start = (data_start + (cluster - 2) * self.sectors_per_cluster) * self.sector_size
+                    start = (data_start + (cluster - 2) *
+                             self.sectors_per_cluster) * self.sector_size
                     self._image[start:start + cluster_size] = target[
                         index * cluster_size:(index + 1) * cluster_size]
             for child in entry['entries']:
                 if child['kind'] == 'file':
                     for index, cluster in enumerate(child['clusters']):
-                        start = (data_start + (cluster - 2) * self.sectors_per_cluster) * self.sector_size
-                        chunk = child['data'][index * cluster_size:(index + 1) * cluster_size]
+                        start = (data_start + (cluster - 2) *
+                                 self.sectors_per_cluster) * self.sector_size
+                        chunk = child['data'][index * cluster_size:
+                                              (index + 1) * cluster_size]
                         self._image[start:start + len(chunk)] = chunk
                 else:
                     parent_cluster = (entry['clusters'][0]
@@ -234,7 +242,8 @@ class HostDirectoryFAT16:
         entries = entry['entries']
         if entry['kind'] != 'root':
             entries = [
-                {'name': b'.          ', 'kind': 'dir', 'data': b'', 'clusters': entry['clusters']},
+                {'name': b'.          ', 'kind': 'dir', 'data': b'',
+                 'clusters': entry['clusters']},
                 {'name': b'..         ', 'kind': 'dir', 'data': b'',
                  'clusters': ([parent_cluster] if parent_cluster else [])},
             ] + entries
@@ -256,8 +265,11 @@ class HostDirectoryFAT16:
             if child['kind'] == 'dir':
                 self._remember_synced_files(child)
             else:
-                self._synced_files[child['relative']] = (
+                relative = child['relative']
+                self._synced_files[relative] = (
                     len(child['data']), tuple(child['clusters']))
+                self._synced_hashes[relative] = hashlib.sha256(
+                    child['data']).hexdigest()
 
     def _fat_value(self, cluster):
         self._validate_cluster(cluster)
@@ -279,8 +291,10 @@ class HostDirectoryFAT16:
         data_start = (self.partition_start + self.reserved_sectors +
                       self.fat_count * self.fat_sectors +
                       (self.root_entries * 32) // self.sector_size)
-        start = (data_start + (cluster - 2) * self.sectors_per_cluster) * self.sector_size
-        return bytes(self._image[start:start + self.sectors_per_cluster * self.sector_size])
+        start = (data_start + (cluster - 2) *
+                 self.sectors_per_cluster) * self.sector_size
+        return bytes(self._image[
+            start:start + self.sectors_per_cluster * self.sector_size])
 
     def _read_chain(self, start_cluster, size):
         if size == 0:
@@ -317,7 +331,8 @@ class HostDirectoryFAT16:
     def _safe_host_path(self, relative):
         if any(part in (b'.          ', b'..         ') for part in relative):
             raise ValueError('guest path contains a traversal component')
-        path = self.directory.joinpath(*[self._display_name(part) for part in relative])
+        path = self.directory.joinpath(
+            *[self._display_name(part) for part in relative])
         return self._validate_host_path(path)
 
     def _validate_host_path(self, path):
@@ -365,18 +380,23 @@ class HostDirectoryFAT16:
                 entries.append(('file', child_relative, size, start_cluster))
         return entries
 
-    def _sync_directory(self, data, relative, visited, dirty_clusters):
+    def _sync_directory(self, data, relative, visited, dirty_clusters,
+                        present):
         for entry in self._directory_entries(data, relative, visited):
+            child_relative = entry[1]
+            present.add(child_relative)
             if entry[0] == 'dir':
                 _, child_relative, child_data = entry
-                host_path = self._host_paths.get(child_relative) or self._safe_host_path(child_relative)
+                host_path = (self._host_paths.get(child_relative) or
+                             self._safe_host_path(child_relative))
                 host_path = self._validate_host_path(host_path)
                 if host_path.is_symlink():
-                    raise ValueError(f'guest write targets a host symlink: {host_path}')
+                    raise ValueError(
+                        f'guest write targets a host symlink: {host_path}')
                 host_path.mkdir(parents=True, exist_ok=True)
                 self._host_paths[child_relative] = host_path
                 self._sync_directory(child_data, child_relative, visited,
-                                     dirty_clusters)
+                                     dirty_clusters, present)
             else:
                 _, child_relative, size, start_cluster = entry
                 chain = self._cluster_chain(start_cluster)
@@ -384,14 +404,61 @@ class HostDirectoryFAT16:
                 if (self._synced_files.get(child_relative) == signature and
                         (size == 0 or dirty_clusters.isdisjoint(chain))):
                     continue
-                host_path = self._host_paths.get(child_relative) or self._safe_host_path(child_relative)
+                host_path = (self._host_paths.get(child_relative) or
+                             self._safe_host_path(child_relative))
                 host_path = self._validate_host_path(host_path)
                 if host_path.is_symlink():
-                    raise ValueError(f'guest write targets a host symlink: {host_path}')
+                    raise ValueError(
+                        f'guest write targets a host symlink: {host_path}')
                 host_path.parent.mkdir(parents=True, exist_ok=True)
-                host_path.write_bytes(self._read_chain(start_cluster, size))
+                file_data = self._read_chain(start_cluster, size)
+                host_path.write_bytes(file_data)
                 self._host_paths[child_relative] = host_path
                 self._synced_files[child_relative] = signature
+                self._synced_hashes[child_relative] = hashlib.sha256(
+                    file_data).hexdigest()
+
+    def _remove_stale_host_paths(self, present):
+        errors = []
+        stale = set(self._host_paths) - present
+        order = sorted(stale,
+                       key=lambda relative: (len(relative), relative),
+                       reverse=True)
+        for relative in order:
+            host_path = self._validate_host_path(self._host_paths[relative])
+            tracked_file = relative in self._synced_files
+            try:
+                if host_path.is_symlink():
+                    raise ValueError(
+                        f'guest delete targets a host symlink: {host_path}')
+                if not host_path.exists():
+                    pass
+                elif tracked_file:
+                    if not host_path.is_file():
+                        raise ValueError(
+                            f'tracked guest file changed type on host: {host_path}')
+                    expected = self._synced_hashes.get(relative)
+                    actual = hashlib.sha256(host_path.read_bytes()).hexdigest()
+                    if actual != expected:
+                        raise ValueError(
+                            f'host file changed outside the guest: {host_path}')
+                    host_path.unlink()
+                else:
+                    if not host_path.is_dir():
+                        raise ValueError(
+                            f'tracked guest directory changed type on host: '
+                            f'{host_path}')
+                    # rmdir is intentionally non-recursive. Unknown host-only
+                    # content makes it fail rather than being destroyed.
+                    host_path.rmdir()
+            except (OSError, ValueError) as error:
+                errors.append(str(error))
+                continue
+            self._host_paths.pop(relative, None)
+            self._synced_files.pop(relative, None)
+            self._synced_hashes.pop(relative, None)
+        if errors:
+            raise ValueError('; '.join(errors))
 
     def SyncToHost(self, dirty_clusters=frozenset()):
         root_start = (self.partition_start + self.reserved_sectors +
@@ -399,7 +466,9 @@ class HostDirectoryFAT16:
         root_size = self.root_entries * 32
         root_data = bytes(self._image[root_start * self.sector_size:
                                       root_start * self.sector_size + root_size])
-        self._sync_directory(root_data, (), set(), dirty_clusters)
+        present = set()
+        self._sync_directory(root_data, (), set(), dirty_clusters, present)
+        self._remove_stale_host_paths(present)
 
     def Read(self, offset, length):
         if offset < 0 or length < 0 or offset + length > len(self._image):
