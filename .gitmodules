@@ -1,0 +1,4 @@
+[submodule "firmware/glabios"]
+	path = firmware/glabios
+	url = https://github.com/janrysavy/GLaBIOS.git
+	branch = pypc
