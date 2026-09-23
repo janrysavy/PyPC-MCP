@@ -78,7 +78,9 @@ python tools/pypc/src/guest/dos_control.py --rpc-port 12311 exec 'D:\TP6\TPC.EXE
 Guest writes already flow to the scratch host directory. For a snapshot
 restored into a new disk directory, pass `--host-root PATH` to `sync`.
 The client also offers `list`, `put`, `get`, `chdir`, `cwd`, `mkdir`, `rename`,
-`delete`, and `quit`. `exec` returns the DOS exit code and, with `--output`,
+`delete`, and `quit`. Rename and delete affect the guest FAT view; the host
+mount may retain the old paths. Use `list` or `get` to inspect guest state.
+`exec` returns the DOS exit code and, with `--output`,
 the exact redirected standard-output/error bytes. Use keyboard/video RPC for
 interactive children such as `DEBUG.EXE`; the foreground worker cannot serve
 other file requests until a child exits. For programs that write directly to
