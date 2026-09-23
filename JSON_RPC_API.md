@@ -54,10 +54,10 @@ Numbers may be JSON integers or strings accepted by Python `int(value, 0)`, such
 | --- | --- |
 | `agent.capabilities` | Return this service's supported methods and limits. |
 | `emulator.info` | Alias of `agent.capabilities`. |
-| `session.status` | Report the fixed live PyPC session and execution state. |
 | `state.get_registers` | Read the 8088 registers and execution state. |
 | `state.get` | Alias of `state.get_registers`. |
 | `state.set_registers` | Guarded register write while paused. |
+| `session.status` | Report the fixed live PyPC session and execution state. |
 | `memory.read` | Read a bounded physical/linear/segmented memory block. |
 | `memory.write` | Guarded memory write while paused. |
 | `video.text` | Read the active CGA or VGA text screen directly from video memory. |
@@ -71,21 +71,23 @@ Numbers may be JSON integers or strings accepted by Python `int(value, 0)`, such
 | `input.keyboard` | Queue XT keyboard make/break scan codes. |
 | `keyboard.scancode` | Single-event alias of `input.keyboard`. |
 | `input.state` | Read currently pressed XT scan codes. |
-| `breakpoints.create` | Create an execution, memory-access, or software-interrupt breakpoint. |
-| `breakpoints.list` | List active breakpoints and hit counts. |
-| `breakpoints.delete` | Delete a breakpoint. |
 | `execution.pause` | Stop at the next instruction boundary. |
 | `execution.continue` | Resume execution and return an operation id. |
 | `execution.go` | Alias of `execution.continue`. |
 | `execution.run_until` | Resume execution until a predicate or guest-time limit matches. |
 | `execution.wait` | Poll a continue or run-until operation. |
 | `execution.step` | Execute exactly one instruction, then pause. |
+| `breakpoints.create` | Create an execution, memory-access, or software-interrupt breakpoint. |
+| `breakpoints.list` | List active breakpoints and hit counts. |
+| `breakpoints.delete` | Delete a breakpoint. |
 | `trace.start` | Start a bounded CPU instruction trace while paused. |
 | `trace.read` | Page retained CPU trace events. |
 | `trace.stop` | Stop a CPU trace and report its retained event count. |
 | `hardware.trace.start` | Start a bounded port-I/O and/or PIC IRQ trace. |
-| `hardware.trace.read` | Page retained hardware trace events. |
+| `hardware.trace.read` | Page retained hardware events and report any overflow. |
 | `hardware.trace.stop` | Stop hardware tracing without discarding retained events. |
+| `machine.snapshot.export` | Persist a paused complete-machine bundle to a new host archive. |
+| `machine.snapshot.import` | Validate and restore a complete-machine bundle into fresh host disk paths while remaining paused. |
 
 ## `agent.capabilities`
 
@@ -118,7 +120,8 @@ Result:
     "execution.run_until","execution.wait","execution.step",
     "breakpoints.create","breakpoints.list","breakpoints.delete",
     "trace.start","trace.read","trace.stop",
-    "hardware.trace.start","hardware.trace.read","hardware.trace.stop"]
+    "hardware.trace.start","hardware.trace.read","hardware.trace.stop",
+    "machine.snapshot.export","machine.snapshot.import"]
 }
 ```
 
