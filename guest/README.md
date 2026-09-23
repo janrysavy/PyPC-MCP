@@ -24,13 +24,16 @@ its pinned private `tools/dostools/Mount` submodule, and an assembled COM in
 one repository-local scratch run. Launch it there with
 `python scripts/pypc_dos.py launch --name RUN`; its printed `drive` is the
 host directory behind guest `D:`. `--mount PATH` accepts another DOS 8.3
-tree. Its `sync WORK\\SOURCE.PAS --name RUN` command publishes a host edit
+tree. Its `sync WORK\SOURCE.PAS --name RUN` command publishes a host edit
 through DOS and checks the guest readback hash.
 Use `--host-root PATH` after importing a snapshot into a new host directory.
 The FAT16 mount caches its image at startup: editing a mounted host file alone
 does not change DOS's view during a run. The explicit sync uses DOS file calls
 and preserves the guest's filesystem state. Guest-created files are written
 back to the host directory by the mount.
+Guest delete and rename change DOS's directory, but the mount does not remove
+the old host path. Use the worker's `list` or `get` to inspect guest state;
+the scratch host tree is not an exact mirror after these operations.
 
 The client has `list`, `put`, `get`, `chdir`, `cwd`, `mkdir`, `rename`, `delete`,
 `exec`, and `quit` commands. `put` reads the entire host file before DOS
@@ -38,9 +41,11 @@ truncates the target; `get` writes a host copy. `exec` takes a program path and
 an optional DOS command tail (include its leading space). `--output` names a
 guest file for redirected standard output and error, returned as byte count,
 SHA-256, base64, and CP437 text. The worker returns DOS `AH=4Dh` exit code and
-termination type. `COMMAND.COM /C ...` can execute shell builtins and batches.
+termination type. `COMMAND.COM /C COPY` was used in the compiler run; batch
+execution and other builtins have not been measured with this worker.
 For interactive programs, issue `exec` in one host thread and use keyboard and
-video RPC from another while it runs.
+video RPC from another while it runs. Submit mailbox commands from only one
+host client at a time; the protocol has no multi-client request arbitration.
 
 Protocol state byte: `3` ready, `1` request, `2` reply, `0` host acknowledgement.
 The worker publishes `RUN1` at header offset 10. The command byte is at 1,
