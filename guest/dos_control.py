@@ -12,6 +12,7 @@ import argparse
 import base64
 import hashlib
 import json
+import math
 from pathlib import Path
 import socket
 import struct
@@ -60,6 +61,8 @@ class RPC:
 
 class DOSControl:
     def __init__(self, rpc: RPC, timeout: float = 120):
+        if not math.isfinite(timeout) or timeout <= 0:
+            raise ValueError('timeout must be finite and greater than zero')
         self.rpc = rpc
         self.timeout = timeout
 
@@ -84,9 +87,29 @@ class DOSControl:
                            struct.pack('<H', len(data)) + bytes(6))
         finally:
             self.rpc.call('execution.continue')
+        return self.collect(command)
+
+    def collect(self, command: str) -> tuple[int, int, bytes]:
+        """Wait for and acknowledge an existing request, without submitting it.
+
+        This also works from a new client after a timeout or disconnect, as
+        long as nobody has acknowledged that reply. RUN1 has no request IDs:
+        callers must still serialize mailbox access and know which job owns it.
+        A timeout does not cancel the DOS child or clear its mailbox.
+        """
+        if len(command) != 1 or not command.isascii():
+            raise ValueError('one ASCII command byte required')
+        if not math.isfinite(self.timeout) or self.timeout <= 0:
+            raise ValueError('timeout must be finite and greater than zero')
         deadline = time.monotonic() + self.timeout
         while time.monotonic() < deadline:
             header = self.rpc.read(BASE, 16)
+            if header[10:14] != b'RUN1':
+                raise RuntimeError('DOS worker is absent')
+            if header[0] == 3:
+                raise RuntimeError('no pending DOS worker reply to collect')
+            if header[1] != ord(command):
+                raise RuntimeError('pending DOS worker command does not match')
             if header[0] == 2:
                 length = struct.unpack_from('<H', header, 4)[0]
                 if length > MAX_DATA:
@@ -110,13 +133,19 @@ class DOSControl:
             if header[0] != 1:
                 raise RuntimeError(f'unexpected DOS worker state: {header[0]}')
             time.sleep(0.1)
-        raise TimeoutError(f'DOS worker did not complete {command!r}')
+        raise TimeoutError(
+            f'DOS worker did not complete {command!r}; the request was not '
+            'cancelled. Collect its reply before submitting another command.')
 
-    def _ok(self, command: str, data: bytes) -> bytes:
-        status, error, result = self.request(command, data)
+    @staticmethod
+    def _checked_reply(command: str, reply: tuple[int, int, bytes]) -> bytes:
+        status, error, result = reply
         if status:
             raise RuntimeError(f'DOS {command}: status={status} error={error}')
         return result
+
+    def _ok(self, command: str, data: bytes) -> bytes:
+        return self._checked_reply(command, self.request(command, data))
 
     @staticmethod
     def _path(path: str) -> bytes:
@@ -199,6 +228,17 @@ class DOSControl:
             raise ValueError('DOS command tail must be at most 125 ASCII bytes')
         out_path = self._path(output) if output else b'\0'
         result = self._ok('X', self._path(program) + encoded + b'\0' + out_path)
+        return self._exec_response(result, output)
+
+    def collect_exec(self, output: str | None = None) -> dict:
+        """Collect a pending EXEC; output must be the original capture path."""
+        # Validate optional metadata before acknowledging the child status.
+        if output:
+            self._path(output)
+        result = self._checked_reply('X', self.collect('X'))
+        return self._exec_response(result, output)
+
+    def _exec_response(self, result: bytes, output: str | None) -> dict:
         if len(result) != 2:
             raise RuntimeError('DOS worker returned invalid child status')
         response = {'exit_code': result[0], 'termination_type': result[1]}
@@ -219,6 +259,9 @@ def main() -> int:
     sub.add_parser('ready')
     sub.add_parser('cwd')
     sub.add_parser('quit')
+    collecting = sub.add_parser('collect-exec',
+                                help='collect a pending EXEC without rerunning it')
+    collecting.add_argument('--output', help='the original DOS capture path, if any')
     listing = sub.add_parser('list')
     listing.add_argument('pattern')
     changing = sub.add_parser('chdir')
@@ -267,10 +310,12 @@ def main() -> int:
         result = worker.put(args.local, args.guest)
     elif args.command == 'get':
         result = worker.get(args.guest, args.local)
+    elif args.command == 'collect-exec':
+        result = worker.collect_exec(args.output)
     else:
         result = worker.exec(args.program, args.tail, args.output)
     print(json.dumps(result, indent=2))
-    if args.command == 'exec':
+    if args.command in ('exec', 'collect-exec'):
         # DOS termination type is independent of AL: never report abnormal
         # termination as a successful host build just because AL is zero.
         return result['exit_code'] or int(result['termination_type'] != 0)

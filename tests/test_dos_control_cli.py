@@ -109,3 +109,34 @@ def test_ready_cli_is_still_a_successful_query():
             thread.join(timeout=5)
         assert completed.returncode == 0
         assert json.loads(completed.stdout) == {'ready': True}
+
+
+@pytest.mark.parametrize(('exit_code', 'termination_type', 'host_code'), [
+    (0, 0, 0), (7, 0, 7), (0, 2, 1), (255, 0, 255),
+])
+def test_collect_exec_cli_does_not_submit_a_second_child(exit_code, termination_type, host_code):
+    with WorkerPeer((exit_code, termination_type)) as peer:
+        peer.memory[0] = 2
+        peer.memory[1] = ord('X')
+        struct.pack_into('<H', peer.memory, 4, 2)
+        peer.memory[DATA:DATA + 2] = peer.child_result
+        thread = threading.Thread(target=peer.serve_forever, daemon=True)
+        thread.start()
+        try:
+            completed = subprocess.run(
+                [sys.executable, str(CLIENT), '--rpc-port',
+                 str(peer.server_address[1]), 'collect-exec'],
+                capture_output=True, text=True, timeout=10,
+            )
+        finally:
+            peer.shutdown()
+            thread.join(timeout=5)
+        assert completed.stderr == ''
+        assert json.loads(completed.stdout) == {
+            'exit_code': exit_code, 'termination_type': termination_type,
+        }
+        assert completed.returncode == host_code
+        assert peer.memory[0] == 3
+        writes = [(p['address'], base64.b64decode(p['data_base64']))
+                  for method, p in peer.requests if method == 'memory.write']
+        assert writes == [(BASE, b'\0')], 'collection must only acknowledge'
