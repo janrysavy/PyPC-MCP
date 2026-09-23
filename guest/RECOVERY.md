@@ -27,6 +27,22 @@ raw `(status, dos_error, payload)` tuple for a known pending mailbox command.
 missing RUN1 markers, and mismatched command bytes are refused without writing
 the mailbox. Nonpositive or nonfinite timeout values are rejected.
 
+## Reply read succeeded but acknowledgement was uncertain
+
+The execution wait and worker-acknowledgement wait each receive their own
+timeout budget. If pausing, writing the acknowledgement, continuing the
+emulator, or observing worker readiness fails after the reply was read, the
+client raises `DOSReplyAcknowledgementError`. Its `reply` field retains the
+exact raw `(status, dos_error, payload)` tuple. For EXEC, the CLI also includes
+the decoded child exit code and termination type when present, along with
+`error.kind = "acknowledgement"` and the original output path.
+
+Do not rerun EXEC after this error. The result is known, but the mailbox may
+still be pending or may already be acknowledged. Check worker readiness before
+sending another DOS request. If output was requested, retrieve the original
+output path after the worker is ready; the acknowledgement-error response does
+not claim that output was captured.
+
 ## Capture retrieval failed after the child completed
 
 EXEC status and capture retrieval are separate operations. After EXEC returns,
@@ -47,8 +63,9 @@ its reply was acknowledged. Once the worker is ready, retrieve the output path
 separately with `get`. If the capture read itself timed out with an outstanding
 RUN1 `R` request, stop the old collector and collect that read using the Python
 `DOSControl.collect('R')` API before submitting another file command. A failed
-transport can also leave acknowledgement uncertain; inspect the mailbox or
-restore a known snapshot rather than clearing it blindly.
+transport can also leave acknowledgement uncertain; preserve the reported
+result, inspect worker readiness, and restore a known snapshot rather than
+clearing the mailbox blindly.
 
 ## Limits
 
@@ -56,10 +73,10 @@ RUN1 still has no request IDs or ownership arbitration. Only one controller
 may use the mailbox, and it must know which command is pending. Stop the old
 collector before starting another. Matching the command byte is a guard against
 collecting a different command kind, not proof of job identity. Already
-acknowledged replies cannot be recovered from the mailbox, and this API does
-not recover an interrupted acknowledgement or cancel a hung child. The timeout
-is the polling budget; individual RPC transport operations retain their own
-timeout.
+acknowledged replies cannot be recovered by a new client, and this API does
+not persist results across controller restarts or cancel a hung child. The
+execution and acknowledgement waits have separate polling budgets; individual
+RPC transport operations retain their own timeout.
 
 The client regression tests exercise the real Python client, CLI subprocess
 and TCP transport against deterministic peers. They reproduce timeout -> late
