@@ -58,6 +58,20 @@ def test_live_rejects_truncated_or_oversized_request(live_dos, command, payload,
     assert live.worker.read_file(PATH[:-1].decode('ascii')) == local.read_bytes()
 
 
+def test_live_rejected_quit_does_not_stop_worker(live_dos):
+    live = live_dos
+    assert live.worker.ready()
+    live.rpc.call('execution.pause')
+    try:
+        live.rpc.write(BASE, bytes((1, ord('Q'))) +
+                       struct.pack('<H', MAX_DATA + 1) + bytes(6))
+    finally:
+        live.rpc.call('execution.continue')
+    assert live.worker.collect('Q') == (1, 0xFFFE, b'')
+    # Q collection does not wait for READY, because a valid Q exits DOSCTRL.
+    live.wait(live.worker.ready, 'worker ready after rejected quit')
+
+
 def test_live_valid_request_after_rejections(live_dos):
     # Validation must not break ordinary child execution or captured output.
     result = live_dos.execute(r'D:\EXIT7.COM')
