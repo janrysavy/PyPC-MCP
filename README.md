@@ -28,7 +28,8 @@
 > The mount accepts DOS 8.3 names. Guest-created and modified files and
 > directories are synchronized into the selected directory and its
 > subdirectories. Symlinks, path escapes, guest deletions, and renames are not
-> supported. Host-side changes made after startup require an emulator restart.
+> supported. The FAT image is cached at startup. To publish a host edit while
+> DOS remains running, use the DOS control worker described below.
 >
 > In DOS, select the drive with `D:` and run a program, for example:
 >
@@ -40,6 +41,50 @@
 > For the text-only VGA adapter, add `--video vga` at startup. It supports the
 > 80×25 and 40×25 text modes, VGA attributes, cursor registers, page flips, and
 > plane-2 font access through the JSON-RPC API.
+
+## DOS compiler automation
+
+The Pyro II repository pins both this fork and the private `dostools` compiler
+tree as submodules. On Windows, from that repository's root:
+
+```powershell
+git submodule update --init tools/pypc/src tools/dostools
+python scripts/pypc_dos.py launch --name my-run
+```
+
+The launcher clones the DOS boot disk and `tools/dostools/Mount` into new
+repository-local scratch directories, checks every copied file hash, creates
+`D:\WORK`, assembles `DOSCTRL.COM` with NASM, and starts PyPC with
+`--host-dir`, `--dos-mailbox`, and JSON-RPC on port 12311. It prints the
+scratch host `D:` directory. `--mount PATH` selects another DOS 8.3 tool tree.
+Wait until `screen` shows the DOS prompt, then enter `D:` and `DOSCTRL`:
+
+```powershell
+python scripts/pypc_dos.py screen --name my-run
+python scripts/pypc_dos.py type 'D:' --name my-run
+python scripts/pypc_dos.py type 'DOSCTRL' --name my-run
+python tools/pypc/src/guest/dos_control.py --rpc-port 12311 ready
+```
+
+Edit source files in the printed scratch host `D:` directory. A direct host
+edit remains invisible to the running DOS FAT cache until it is published:
+
+```powershell
+python scripts/pypc_dos.py sync 'WORK\HELLO.PAS' --name my-run
+python tools/pypc/src/guest/dos_control.py --rpc-port 12311 exec 'D:\TP6\TPC.EXE' ' D:\WORK\HELLO.PAS' --output 'D:\WORK\TPC.LOG'
+```
+
+`sync` transfers the edited bytes through DOS and verifies guest readback.
+Guest writes already flow to the scratch host directory. For a snapshot
+restored into a new disk directory, pass `--host-root PATH` to `sync`.
+The client also offers `list`, `put`, `get`, `chdir`, `cwd`, `mkdir`, `rename`,
+`delete`, and `quit`. `exec` returns the DOS exit code and, with `--output`,
+the exact redirected standard-output/error bytes. Use keyboard/video RPC for
+interactive children such as `DEBUG.EXE`; the foreground worker cannot serve
+other file requests until a child exits. For programs that write directly to
+the screen, `video.history` records overwritten text VRAM and reports loss if
+its ring fills. See [the guest worker guide](guest/README.md) and
+[the JSON-RPC contract](JSON_RPC_API.md).
 
 PyPC is an IBM PC (8088) emulator written in Python.
 
