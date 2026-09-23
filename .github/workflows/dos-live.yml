@@ -28,6 +28,7 @@ jobs:
         run: >-
           python -m pytest -q -s
           tests/test_dos_live.py tests/test_dos_live_mirror.py
+          tests/test_dos_live_validation.py
           --basetemp live-results
       - name: Retain reports only, never disk or tool binaries
         if: always()
