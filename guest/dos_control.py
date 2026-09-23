@@ -23,6 +23,7 @@ import time
 BASE = 0xD8000
 DATA = 0x20
 MAX_DATA = 4096
+RESUME_CLEANUP_TIMEOUT = 1.0
 
 
 class DOSClientInputError(ValueError):
@@ -78,6 +79,25 @@ class DOSReplyAcknowledgementError(RuntimeError):
         }
 
 
+class DOSRequestSubmissionError(RuntimeError):
+    """The request may have been published, but was not confirmed to the host."""
+
+    def __init__(self, command: str):
+        self.command = command
+        self.result: dict = {}
+        super().__init__(
+            f'DOS {command} request publication was not confirmed; it may be '
+            'running. Do not rerun it; collect the same command or inspect the '
+            'worker before submitting another request.')
+
+    def as_error(self) -> dict:
+        return {
+            'kind': 'submission_uncertain',
+            'command': self.command,
+            'message': str(self),
+        }
+
+
 class DOSOutputError(RuntimeError):
     """Capture retrieval failed after EXEC completed and was acknowledged.
 
@@ -106,15 +126,29 @@ class RPC:
     def __init__(self, port: int):
         self.port = port
         self.sequence = 0
+        self.timeout = 20.0
 
-    def call(self, method: str, params: dict | None = None) -> dict:
+    def call(self, method: str, params: dict | None = None, *,
+             deadline: float | None = None) -> dict:
+        call_deadline = time.monotonic() + self.timeout
+        if deadline is not None:
+            call_deadline = min(call_deadline, deadline)
+
+        def remaining_timeout() -> float:
+            remaining = call_deadline - time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError('PyPC RPC deadline expired')
+            return remaining
+
         self.sequence += 1
         request_id = self.sequence
         request = {'jsonrpc': '2.0', 'id': request_id,
                    'method': method, 'params': params or {}}
-        with socket.create_connection(('127.0.0.1', self.port), 20) as sock:
-            sock.settimeout(20)
+        with socket.create_connection(('127.0.0.1', self.port),
+                                      remaining_timeout()) as sock:
+            sock.settimeout(remaining_timeout())
             sock.sendall(json.dumps(request).encode('utf-8') + b'\n')
+            sock.settimeout(remaining_timeout())
             with sock.makefile('rb') as stream:
                 line = stream.readline(16 * 1024 * 1024 + 1)
         if not line.endswith(b'\n') or len(line) > 16 * 1024 * 1024:
@@ -126,16 +160,20 @@ class RPC:
             raise RuntimeError(f'{method}: {reply["error"]}')
         return reply['result']
 
-    def read(self, address: int, length: int) -> bytes:
-        result = self.call('memory.read', {'address': address, 'length': length})
+    def read(self, address: int, length: int, *,
+             deadline: float | None = None) -> bytes:
+        result = self.call('memory.read', {'address': address, 'length': length},
+                           deadline=deadline)
         data = base64.b64decode(result['data_base64'], validate=True)
         if hashlib.sha256(data).hexdigest() != result['sha256']:
             raise RuntimeError('PyPC memory read hash mismatch')
         return data
 
-    def write(self, address: int, data: bytes) -> None:
+    def write(self, address: int, data: bytes, *,
+              deadline: float | None = None) -> None:
         self.call('memory.write', {'address': address,
-                                   'data_base64': base64.b64encode(data).decode('ascii')})
+                                   'data_base64': base64.b64encode(data).decode('ascii')},
+                  deadline=deadline)
 
 
 class DOSControl:
@@ -145,8 +183,33 @@ class DOSControl:
         self.rpc = rpc
         self.timeout = timeout
 
+    def _resume_after_pause(self, deadline: float) -> None:
+        # A timed-out pause/write may have taken effect even when its reply
+        # was lost. Give this safety cleanup a short bounded grace so the VM
+        # is not left paused when the command's own deadline has expired.
+        now = time.monotonic()
+        if deadline <= now:
+            deadline = now + RESUME_CLEANUP_TIMEOUT
+        try:
+            self.rpc.call('execution.continue', deadline=deadline)
+        except TimeoutError:
+            if deadline > time.monotonic():
+                raise
+            # The continue may have taken effect just as its reply timed out.
+            # Retry once under the short safety-cleanup budget.
+            self.rpc.call('execution.continue',
+                          deadline=time.monotonic() + RESUME_CLEANUP_TIMEOUT)
+
+    @staticmethod
+    def _collect_timeout(command: str) -> TimeoutError:
+        return TimeoutError(
+            f'DOS worker did not return a collectable {command!r} reply; '
+            'the request was not cancelled. Collect its reply before '
+            'submitting another command.')
+
     def ready(self) -> bool:
-        header = self.rpc.read(BASE, 16)
+        header = self.rpc.read(BASE, 16,
+                               deadline=time.monotonic() + self.timeout)
         return header[10:14] == b'RUN1' and header[0] == 3
 
     def request(self, command: str, data: bytes = b'') -> tuple[int, int, bytes]:
@@ -154,21 +217,40 @@ class DOSControl:
             raise DOSClientInputError('one ASCII command byte required')
         if len(data) > MAX_DATA:
             raise DOSClientInputError('request exceeds mailbox data capacity')
-        header = self.rpc.read(BASE, 16)
+        deadline = time.monotonic() + self.timeout
+        header = self.rpc.read(BASE, 16, deadline=deadline)
         if header[10:14] != b'RUN1' or header[0] != 3:
             raise RuntimeError('DOS worker is absent or busy')
-        self.rpc.call('execution.pause')
         try:
+            self.rpc.call('execution.pause', deadline=deadline)
             # The CPU remains paused until both data and the command flag are set.
             if data:
-                self.rpc.write(BASE + DATA, data)
-            self.rpc.write(BASE, bytes((1, ord(command))) +
-                           struct.pack('<H', len(data)) + bytes(6))
-        finally:
-            self.rpc.call('execution.continue')
-        return self.collect(command)
+                self.rpc.write(BASE + DATA, data, deadline=deadline)
+            try:
+                self.rpc.write(BASE, bytes((1, ord(command))) +
+                               struct.pack('<H', len(data)) + bytes(6),
+                               deadline=deadline)
+            except Exception as exc:
+                # The guest may have accepted the mailbox write even when its
+                # JSON-RPC acknowledgement timed out or the connection broke.
+                raise DOSRequestSubmissionError(command) from exc
+        except BaseException as exc:
+            try:
+                self._resume_after_pause(deadline)
+            except Exception as resume_error:
+                if hasattr(exc, 'add_note'):
+                    exc.add_note(
+                        f'emulator resume attempt failed: {resume_error}')
+            raise
+        else:
+            try:
+                self._resume_after_pause(deadline)
+            except Exception as exc:
+                raise DOSRequestSubmissionError(command) from exc
+        return self.collect(command, deadline=deadline)
 
-    def collect(self, command: str) -> tuple[int, int, bytes]:
+    def collect(self, command: str, *,
+                deadline: float | None = None) -> tuple[int, int, bytes]:
         """Wait for and acknowledge an existing request, without submitting it.
 
         This also works from a new client after a timeout or disconnect, as
@@ -180,9 +262,13 @@ class DOSControl:
             raise DOSClientInputError('one ASCII command byte required')
         if not math.isfinite(self.timeout) or self.timeout <= 0:
             raise DOSClientInputError('timeout must be finite and greater than zero')
-        deadline = time.monotonic() + self.timeout
+        if deadline is None:
+            deadline = time.monotonic() + self.timeout
         while time.monotonic() < deadline:
-            header = self.rpc.read(BASE, 16)
+            try:
+                header = self.rpc.read(BASE, 16, deadline=deadline)
+            except TimeoutError as exc:
+                raise self._collect_timeout(command) from exc
             if header[10:14] != b'RUN1':
                 raise RuntimeError('DOS worker is absent')
             if header[0] == 3:
@@ -193,40 +279,42 @@ class DOSControl:
                 length = struct.unpack_from('<H', header, 4)[0]
                 if length > MAX_DATA:
                     raise RuntimeError('DOS worker returned oversized data')
-                result = self.rpc.read(BASE + DATA, length) if length else b''
-                status, error = header[6], struct.unpack_from('<H', header, 8)[0]
                 try:
-                    self.rpc.call('execution.pause')
-                    try:
-                        self.rpc.write(BASE, b'\0')
-                    finally:
-                        self.rpc.call('execution.continue')
-                except Exception as exc:
-                    raise DOSReplyAcknowledgementError(
-                        command, (status, error, result)) from exc
-                if command == 'Q':
-                    return status, error, result
-                # A reply received at the end of the execution wait still
-                # needs its own bounded acknowledgement window.
+                    result = (self.rpc.read(BASE + DATA, length, deadline=deadline)
+                              if length else b'')
+                except TimeoutError as exc:
+                    raise self._collect_timeout(command) from exc
+                status, error = header[6], struct.unpack_from('<H', header, 8)[0]
+                # Start the acknowledgement budget as soon as the exact reply
+                # is in hand. Its RPC calls and readiness poll share one end.
                 ack_deadline = time.monotonic() + self.timeout
                 try:
-                    while time.monotonic() < ack_deadline:
-                        if self.rpc.read(BASE, 1) == b'\x03':
+                    try:
+                        self.rpc.call('execution.pause', deadline=ack_deadline)
+                        self.rpc.write(BASE, b'\0', deadline=ack_deadline)
+                    finally:
+                        self._resume_after_pause(ack_deadline)
+                    if command == 'Q':
+                        return status, error, result
+                    while True:
+                        if self.rpc.read(BASE, 1, deadline=ack_deadline) == b'\x03':
                             break
-                        time.sleep(min(0.05, max(0, ack_deadline - time.monotonic())))
-                    else:
-                        raise TimeoutError(
-                            'DOS worker did not acknowledge response')
+                        remaining = ack_deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise TimeoutError(
+                                'DOS worker did not acknowledge response')
+                        time.sleep(min(0.05, remaining))
                 except Exception as exc:
                     raise DOSReplyAcknowledgementError(
                         command, (status, error, result)) from exc
                 return status, error, result
             if header[0] != 1:
                 raise RuntimeError(f'unexpected DOS worker state: {header[0]}')
-            time.sleep(0.1)
-        raise TimeoutError(
-            f'DOS worker did not complete {command!r}; the request was not '
-            'cancelled. Collect its reply before submitting another command.')
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            time.sleep(min(0.1, remaining))
+        raise self._collect_timeout(command)
 
     @staticmethod
     def _checked_reply(command: str, reply: tuple[int, int, bytes]) -> bytes:
@@ -331,6 +419,10 @@ class DOSControl:
         try:
             reply = self.request(
                 'X', self._path(program) + encoded + b'\0' + out_path)
+        except DOSRequestSubmissionError as exc:
+            if output:
+                exc.result = {'output_path': output}
+            raise
         except DOSReplyAcknowledgementError as exc:
             exc.result = self._exec_acknowledgement_result(exc.reply, output)
             raise
@@ -385,7 +477,11 @@ class DOSControl:
 
 def _print_cli_failure(exc: Exception) -> int:
     result = {}
-    if isinstance(exc, DOSReplyAcknowledgementError):
+    if isinstance(exc, DOSRequestSubmissionError):
+        result = exc.result
+        error = exc.as_error()
+        exit_code = 1
+    elif isinstance(exc, DOSReplyAcknowledgementError):
         result = exc.result
         error = exc.as_error()
         exit_code = 1

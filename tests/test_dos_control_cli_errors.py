@@ -124,7 +124,7 @@ def test_invalid_tail_is_structured_before_any_connection():
 def test_timeout_is_structured_and_does_not_acknowledge_or_cancel():
     with ErrorPeer(complete=False) as peer:
         completed = run_with_peer(
-            peer, '--timeout', '0.01', 'exec', r'D:\WAIT.EXE')
+            peer, '--timeout', '0.2', 'exec', r'D:\WAIT.EXE')
     assert completed.returncode == 1
     assert completed.stderr == ''
     error = json.loads(completed.stdout)['error']

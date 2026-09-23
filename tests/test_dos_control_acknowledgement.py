@@ -23,7 +23,7 @@ class AckNeverReadyPeer(ErrorPeer):
 def test_cli_preserves_child_status_when_acknowledgement_times_out():
     with AckNeverReadyPeer() as peer:
         completed = run_with_peer(
-            peer, '--timeout', '0.01', 'exec', r'D:\PROGRAM.EXE',
+            peer, '--timeout', '0.2', 'exec', r'D:\PROGRAM.EXE',
             '--output', r'D:\PROGRAM.LOG')
 
     result = json.loads(completed.stdout)
