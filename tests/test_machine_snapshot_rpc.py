@@ -6,6 +6,7 @@ import pytest
 import debughardware
 import debugtrace
 import machinesnapshots
+import videohistory
 import vncserver
 from machinecodec import capture_machine
 from machinesnapshots import LockedDisplay, MachineSnapshots
@@ -23,7 +24,8 @@ def rpc_machine(tmp_path):
     harness.namespace.update(p=cpu, b=cpu._b, state=cpu.GetState(), scr=cpu._devices[3],
                              debughardware=debughardware, debugtrace=debugtrace,
                              hardware_trace=debughardware.HardwareTraceRecorder(),
-                             machine_snapshots=MachineSnapshots(cpu, display, vnc))
+                             machine_snapshots=MachineSnapshots(cpu, display, vnc),
+                             video_history=videohistory.VideoHistory(cpu.GetState().GetClock))
     # Bind production register methods to this real motherboard before testing.
     tree = ast.parse((Path(__file__).resolve().parents[1]/'main.py').read_text())
     body = next(n.body for n in tree.body if isinstance(n, ast.Try))

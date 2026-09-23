@@ -18,7 +18,7 @@ MAX_MEMBERS = 8192
 
 def _verify(manifest, buffers):
     if (type(manifest) is not dict or manifest.get('format') != 'pypc.machine'
-            or type(manifest.get('version')) is not int or manifest['version'] != 1
+            or type(manifest.get('version')) is not int or manifest['version'] not in (1, 2)
             or type(manifest.get('buffers')) is not dict or type(buffers) is not dict
             or set(manifest['buffers']) != set(buffers) or len(buffers) >= MAX_MEMBERS):
         raise ValueError('invalid machine bundle inventory')

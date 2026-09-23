@@ -16,7 +16,7 @@ from timingcodec import _integer, _validate
 
 
 CLASSES = {'mda': MDA, 'cga': CGA, 'vga': VGA}
-LINKS = {'_pic', '_b'}
+LINKS = {'_pic', '_b', '_video_history'}  # Live recorder is invalidated on restore.
 
 
 def _bool(v):

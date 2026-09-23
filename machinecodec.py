@@ -8,6 +8,7 @@ import hashlib
 from pathlib import Path
 
 import bus
+import dosmailbox
 import i8088
 import i8253
 import i8255
@@ -46,11 +47,15 @@ def capture_machine(cpu, *, bios_service=False, disk_mode='auto'):
     changing render caches. External filesystem writers must also be excluded.
     """
     devices = cpu._devices
-    if (len(devices) != 7 or type(devices[0]) is not i8253.i8253
+    mailbox = len(devices) == 8 and type(devices[5]) is dosmailbox.DOSMailbox
+    dma_index = 6 if mailbox else 5
+    pic_index = dma_index + 1
+    if (len(devices) != pic_index + 1 or type(devices[0]) is not i8253.i8253
             or type(devices[1]) is not keyboard.Keyboard
             or type(devices[2]) is not i8255.i8255
             or type(devices[4]) is not xtide.XTIDE
-            or devices[5] is not cpu._io._i8237 or devices[6] is not cpu._io._pic
+            or devices[dma_index] is not cpu._io._i8237
+            or devices[pic_index] is not cpu._io._pic
             or cpu._b._devices is not devices or cpu._io._devices is not devices):
         raise ValueError('unsupported motherboard topology')
     if type(bios_service) is not bool or bool(cpu._interrupt_service_hook) != bios_service:
@@ -63,6 +68,8 @@ def capture_machine(cpu, *, bios_service=False, disk_mode='auto'):
     if not 0 <= len(devices[4]._disks) <= 2:
         raise ValueError('unsupported disk inventory')
     buffers = {'ram': bytes(cpu._b._m._m)}
+    if mailbox:
+        buffers['dos_mailbox'] = bytes(devices[5]._memory)
     video, video_buffers = dump_video_state(devices[3])
     buffers.update({'video/'+k: v for k,v in video_buffers.items()})
     controller, transfer = dump_xtide_state(devices[4]); buffers['xtide'] = transfer
@@ -77,11 +84,15 @@ def capture_machine(cpu, *, bios_service=False, disk_mode='auto'):
             raise ValueError('unsupported ROM layout')
         key = 'rom'+str(index); buffers[key] = bytes(device._contents)
         roms.append({'offset': device._offset, 'buffer': key})
-    return {'format':'pypc.machine', 'version':1, 'source':source_identity(),
-            'configuration':{'ram_size':cpu._b._size, 'memory_mask':cpu._MemMask,
-                             'run_io':not cpu._io._test_mode,
-                             'terminate_on_off_the_rails':cpu._terminate_on_off_the_rails,
-                             'bios_service':bios_service},
+    configuration = {'ram_size':cpu._b._size, 'memory_mask':cpu._MemMask,
+                     'run_io':not cpu._io._test_mode,
+                     'terminate_on_off_the_rails':cpu._terminate_on_off_the_rails,
+                     'bios_service':bios_service}
+    if mailbox:
+        configuration['dos_mailbox'] = True
+    return {'format':'pypc.machine', 'version':2 if mailbox else 1,
+            'source':source_identity(),
+            'configuration':configuration,
             'cpu':dump_cpu_state(cpu._state), 'pit':dump_pit_state(devices[0]),
             'keyboard':dump_keyboard_state(devices[1]), 'ppi':dump_ppi_state(devices[2]),
             'video':video, 'xtide':controller, 'pic':dump_pic_state(cpu._io._pic),
@@ -100,7 +111,8 @@ def prepare_machine(manifest, buffers, disk_root, references=None):
               'video','xtide','pic','dma','host_rng','roms','disks','buffers'}
     if (type(manifest) is not dict or set(manifest) != fields
             or manifest['format'] != 'pypc.machine' or type(manifest['version']) is not int
-            or manifest['version'] != 1 or manifest['source'] != source_identity()):
+            or manifest['version'] not in (1, 2)
+            or manifest['source'] != source_identity()):
         raise ValueError('machine schema or emulator source mismatch')
     if type(buffers) is not dict or set(buffers) != set(manifest['buffers']):
         raise ValueError('machine buffer inventory mismatch')
@@ -108,13 +120,20 @@ def prepare_machine(manifest, buffers, disk_root, references=None):
         if type(data) is not bytes or manifest['buffers'][key] != _blob(data):
             raise ValueError('machine buffer hash mismatch')
     config = manifest['configuration']
-    if (type(config) is not dict or set(config) != {'ram_size','memory_mask','run_io',
-                                                  'terminate_on_off_the_rails','bios_service'}
+    mailbox = manifest['version'] == 2
+    config_keys = {'ram_size','memory_mask','run_io',
+                   'terminate_on_off_the_rails','bios_service'}
+    if mailbox:
+        config_keys.add('dos_mailbox')
+    if (type(config) is not dict or set(config) != config_keys
             or type(config['ram_size']) is not int or config['ram_size'] != 1048576
             or type(config['memory_mask']) is not int or config['memory_mask'] != 0xfffff
             or any(type(config[k]) is not bool for k in ('run_io','terminate_on_off_the_rails','bios_service'))
+            or (mailbox and config['dos_mailbox'] is not True)
             or len(buffers.get('ram', b'')) != config['ram_size']):
         raise ValueError('unsupported machine configuration')
+    if mailbox and len(buffers.get('dos_mailbox', b'')) != dosmailbox.DOSMailbox.size:
+        raise ValueError('DOS mailbox buffer has the wrong size')
     state = load_cpu_state(manifest['cpu'])
     pit = load_pit_state(manifest['pit']); kb = load_keyboard_state(manifest['keyboard'])
     ppi = load_ppi_state(manifest['ppi'], kb)
@@ -154,11 +173,15 @@ def prepare_machine(manifest, buffers, disk_root, references=None):
         device._offset = item['offset']; device._contents = list(buffers[item['buffer']])
         roms.append(device)
     expected = {'ram','xtide'} | {'rom'+str(i) for i in range(len(roms))}
+    if mailbox:
+        expected.add('dos_mailbox')
     expected |= {'video/'+k for k in manifest['video']['buffers']}
     expected |= {f'disk{i}/'+k for i,payload in enumerate(payloads) for k in payload}
     if set(buffers) != expected:
         raise ValueError('unconsumed machine buffers')
     devices = [pit, kb, ppi, video, controller]
+    if mailbox:
+        devices.append(dosmailbox.DOSMailbox(buffers['dos_mailbox']))
     motherboard = bus.Bus(config['ram_size'], devices, roms)
     cpu = i8088.i8088(motherboard, devices, config['run_io'])
     cpu._state = state; cpu._MemMask = config['memory_mask']

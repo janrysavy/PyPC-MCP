@@ -10,6 +10,7 @@ import debugserver
 import debugbreakpoints
 import debughardware
 import debugtrace
+import dosmailbox
 import i8088
 import i8253
 import i8255
@@ -21,6 +22,7 @@ import time
 import vncserver
 import vncspeed
 import vga
+import videohistory
 import xtide
 import virtualfat16
 from biosservice import VGAInterruptService
@@ -36,7 +38,9 @@ def ParseArguments():
         '--video', choices=('cga', 'vga'), default='cga',
         help='select the emulated text/video adapter (default: cga)')
     parser.add_argument('--vnc-speed-overlay', action='store_true',
-                        help='show emulated/wall speed at top right over VNC pixels')
+        help='show emulated/wall speed at top right over VNC pixels')
+    parser.add_argument('--dos-mailbox', action='store_true',
+        help='reserve D8000h-D9FFFh for the DOS control worker')
     for name, default in (('rpc', 2301), ('telnet', 2300), ('vnc', 5902)):
         parser.add_argument(f'--{name}-port', type=int, default=default,
                             help=f'{name} listener port (default: {default})')
@@ -130,6 +134,8 @@ try:
         disks.append(host_disk)
         print(f'Exposing {host_disk.directory} as guest drive D: (FAT16, write-through)')
     devices.append(xtide.XTIDE(disks));
+    if arguments.dos_mailbox:
+        devices.append(dosmailbox.DOSMailbox())
 
     roms = []
     roms.append(rom.Rom('roms/GLABIOS.ROM', 0xf000 * 16 + 0xe000))
@@ -138,6 +144,7 @@ try:
     b = bus.Bus(1024 * 1024, devices, roms)
     p = i8088.i8088(b, devices, True)
     state = p.GetState()
+    video_history = videohistory.VideoHistory(state.GetClock)
     state.SetCS(0xf000)
     state.SetIP(0xfff0)
     if arguments.video == 'vga':
@@ -453,7 +460,9 @@ try:
                     'agent.capabilities', 'emulator.info', 'state.get_registers',
                     'state.get', 'state.set_registers', 'session.status',
                     'memory.read', 'memory.write', 'video.text', 'video.snapshot',
-                    'video.snapshot.read', 'io.read', 'io.write', 'input.keyboard',
+                    'video.snapshot.read', 'video.history.start',
+                    'video.history.read', 'video.history.stop',
+                    'io.read', 'io.write', 'input.keyboard',
                     'keyboard.scancode', 'input.state', 'execution.pause',
                     'execution.continue', 'execution.go', 'execution.run_until',
                     'execution.wait', 'execution.step',
@@ -484,6 +493,8 @@ try:
                 raise ValueError('references must map disk indices 0/1 to host paths')
             machine_snapshots.restore(path, disk_root, params.get('sha256'),
                                       {int(k):v for k,v in references.items()})
+            video_history.reset()
+            p._io.SetVideoWriteHook(None, None)
             rpc_clear_run_until()
             control['operations'].clear()
             control['active_operation'] = None
@@ -591,6 +602,24 @@ try:
 
         if method == 'video.snapshot':
             return rpc_video_snapshot()
+
+        if method == 'video.history.start':
+            capacity = rpc_number(params.get('capacity', 500000), 'capacity')
+            result = video_history.start(scr, capacity)
+            p._io.SetVideoWriteHook(scr, video_history.port_write)
+            return result
+
+        if method == 'video.history.read':
+            cursor = params.get('cursor')
+            if cursor is not None:
+                cursor = rpc_number(cursor, 'cursor')
+            limit = rpc_number(params.get('limit', 1024), 'limit')
+            return video_history.read(params.get('history_id'), cursor, limit)
+
+        if method == 'video.history.stop':
+            result = video_history.stop()
+            p._io.SetVideoWriteHook(None, None)
+            return result
 
         if method == 'video.snapshot.read':
             snapshot_id = params.get('snapshot_id')
