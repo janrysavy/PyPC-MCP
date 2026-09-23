@@ -54,6 +54,16 @@ recursive clone also gets their exact sources: GLaBIOS is pinned under
 `firmware/glabios` to the stable v0.4.2 based PyPC branch, and the VGA bridge
 source is under `roms`. See [the firmware build and configuration record](docs/GLABIOS.md).
 
+## DOS boot image
+
+The tracked MS-DOS 6 boot image loads the Lo-tech expanded-memory driver with
+`DEVICE=LTEMM\LTEMM.EXE /n`. The driver's documented `/n` switch skips its
+slow page-by-page startup test while retaining the 2 MiB EMS device and all
+128 pages. The driver, source, and `LTEMM.TXT` manual are present on the image.
+`python -m pytest -q tests/test_boot_disk.py` reads the FAT16 image directly and
+checks that the boot configuration uses the switch documented by that bundled
+manual.
+
 ## DOS compiler automation
 
 The Pyro II repository pins both this fork and the private `dostools` compiler
