@@ -10,6 +10,10 @@ jobs:
   dos-live:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        test: [test_dos_live.py, test_dos_live_mirror.py, test_dos_live_validation.py]
     steps:
       - uses: actions/checkout@v4
         with:
@@ -22,18 +26,33 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y nasm
           python -m pip install pytest lz4==4.4.5
+      - name: Record reproducible worker build
+        if: matrix.test == 'test_dos_live_validation.py'
+        run: |
+          nasm -f bin guest/dos_control.asm -o /tmp/DOSCTRL.COM
+          python - <<'PY'
+          import base64, hashlib, json, zlib
+          from pathlib import Path
+          source = Path('guest/dos_control.asm').read_bytes()
+          binary = Path('/tmp/DOSCTRL.COM').read_bytes()
+          # This is our MIT-licensed worker only, never DOS or compiler inputs.
+          # Compress to avoid truncating the structured log annotation.
+          report = {'source_sha256': hashlib.sha256(source).hexdigest(),
+                    'binary_sha256': hashlib.sha256(binary).hexdigest(),
+                    'binary_size': len(binary),
+                    'binary_zlib_base64': base64.b64encode(zlib.compress(binary)).decode('ascii')}
+          print('::notice title=DOSCTRL_BUILD::' + json.dumps(report))
+          PY
       - name: Boot DOS and test real command execution
         env:
           PYPC_LIVE_DOS: '1'
-        run: >-
-          python -m pytest -q -s
-          tests/test_dos_live.py tests/test_dos_live_mirror.py
-          --basetemp live-results
-      - name: Retain reports only, never disk or tool binaries
+          TEST_MODULE: ${{ matrix.test }}
+        run: python -m pytest -q -s "tests/$TEST_MODULE" --basetemp live-results
+      - name: Retain reports only, never disk or compiler binaries
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dos-live-${{ github.run_id }}
+          name: dos-live-${{ matrix.test }}-${{ github.run_id }}
           path: |
             live-results/**/report.json
             live-results/**/stdout.log

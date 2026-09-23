@@ -40,6 +40,12 @@ dispatch:
     mov byte [es:6],0
     mov word [es:8],0
     mov word [es:4],0
+    ; No parser may consume bytes left over from an earlier request.
+    mov ax,[es:2]
+    cmp ax,MAX_DATA
+    ja invalid_request
+    add ax,DATA_OFF
+    mov [request_end],ax
     mov al,[es:1]
     cmp al,'L'
     je list_first
@@ -78,6 +84,8 @@ copy_path:
     mov di,pathbuf
 .loop:
     cmp di,pathbuf+127
+    jae .bad
+    cmp si,[request_end]
     jae .bad
     mov al,[es:si]
     mov [di],al
@@ -209,11 +217,10 @@ close_error:
 read_file:
     call copy_path
     jc invalid_request
-    mov ax,[es:2]
-    sub ax,si
-    add ax,DATA_OFF
+    mov ax,[request_end]
+    sub ax,si                    ; copy_path has proved SI <= request_end.
     cmp ax,6
-    jb invalid_request
+    jne invalid_request
     mov [transfer_offset],si
     mov dx,pathbuf
     mov ax,3D00h
@@ -297,6 +304,8 @@ rename_file:
 .copy_new:
     cmp di,newpath+127
     jae invalid_request
+    cmp si,[request_end]
+    jae invalid_request
     mov al,[es:si]
     mov [di],al
     inc si
@@ -350,6 +359,8 @@ exec_file:
 .tail:
     cmp cx,126
     jae invalid_request
+    cmp si,[request_end]
+    jae invalid_request
     mov al,[es:si]
     inc si
     test al,al
@@ -364,6 +375,8 @@ exec_file:
     mov di,logpath
 .log_path:
     cmp di,logpath+127
+    jae invalid_request
+    cmp si,[request_end]
     jae invalid_request
     mov al,[es:si]
     mov [di],al
@@ -481,13 +494,17 @@ done:
     jmp .wait_ack
 .acknowledged:
     cmp byte [es:1],'Q'
+    jne .ready
+    cmp byte [es:6],0
     je .quit
+.ready:
     mov byte [es:0],3
     jmp poll
 .quit:
     mov ax,4C00h
     int 21h
 
+request_end dw 0
 file_handle dw 0
 transfer_count dw 0
 transfer_offset dw 0
