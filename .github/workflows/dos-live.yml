@@ -1,0 +1,39 @@
+name: Live DOS command integration
+on:
+  pull_request:
+  push:
+    branches: [master, ai-re-agent]
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  dos-live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y nasm
+          python -m pip install pytest lz4==4.4.5
+      - name: Boot DOS and test real command execution
+        env:
+          PYPC_LIVE_DOS: '1'
+        run: python -m pytest -q -s tests/test_dos_live.py --basetemp live-results
+      - name: Retain reports only, never disk or tool binaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dos-live-${{ github.run_id }}
+          path: |
+            live-results/**/report.json
+            live-results/**/stdout.log
+            live-results/**/stderr.log
+          if-no-files-found: warn
+          retention-days: 14
