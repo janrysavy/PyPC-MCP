@@ -64,6 +64,8 @@ The worker is foreground and cannot serve new file requests during `EXEC`.
 PyPC's keyboard, video, CPU, and snapshot RPC remains usable then. Programs
 that write directly to video do not produce captured stdout. Enable
 `video.history.start` to retain ordered changed text VRAM/font/port events;
-check `lost_events` before calling that stream complete. Graphics VRAM is not
+check `lost_events` before calling that stream complete. The live overwrite
+replay in the Pyro II repository verified text events only; font and port
+event delivery has not been checked in a live guest run. Graphics VRAM is not
 yet journaled. A no-resident-worker shell path is still needed for programs
 that require the worker's conventional memory.
