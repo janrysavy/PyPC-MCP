@@ -27,12 +27,26 @@ raw `(status, dos_error, payload)` tuple for a known pending mailbox command.
 missing RUN1 markers, and mismatched command bytes are refused without writing
 the mailbox. Nonpositive or nonfinite timeout values are rejected.
 
+## Request publication was not confirmed
+
+If the JSON-RPC reply is lost while writing the RUN1 request header or
+confirming resume after publication, the guest may already have accepted the
+command. The client raises `DOSRequestSubmissionError` with
+`error.kind = "submission_uncertain"`; EXEC also retains its requested output
+path. Do not submit the command again. Check the worker and collect the same
+command if it is pending. The one-second resume cleanup may outlast the DOS
+request deadline when the CPU was paused.
+
 ## Reply read succeeded but acknowledgement was uncertain
 
 The execution wait and worker-acknowledgement wait each receive their own
-timeout budget. If pausing, writing the acknowledgement, continuing the
-emulator, or observing worker readiness fails after the reply was read, the
-client raises `DOSReplyAcknowledgementError`. Its `reply` field retains the
+timeout budget. Each JSON-RPC connect, send, and response read is capped by the
+smaller of 20 seconds and the phase's remaining deadline. The execution budget
+also covers request publication; the acknowledgement budget starts once the
+reply bytes have been read and covers pause, acknowledgement write, resume, and
+worker-readiness polling. If pausing, writing the acknowledgement, continuing
+the emulator, or observing worker readiness fails after the reply was read,
+the client raises `DOSReplyAcknowledgementError`. Its `reply` field retains the
 exact raw `(status, dos_error, payload)` tuple. For EXEC, the CLI also includes
 the decoded child exit code and termination type when present, along with
 `error.kind = "acknowledgement"` and the original output path.
@@ -75,13 +89,18 @@ collector before starting another. Matching the command byte is a guard against
 collecting a different command kind, not proof of job identity. Already
 acknowledged replies cannot be recovered by a new client, and this API does
 not persist results across controller restarts or cancel a hung child. The
-execution and acknowledgement waits have separate polling budgets; individual
-RPC transport operations retain their own timeout.
+execution and acknowledgement phases have separate budgets, with individual
+RPC operations capped by the remaining phase time. If the request deadline
+expires after the CPU was paused, the client makes a separately bounded
+one-second attempt to resume it. A high-level file transfer uses one timeout
+per mailbox command, so large multi-chunk transfers can take longer than one
+timeout interval.
 
 The client regression tests exercise the real Python client, CLI subprocess
 and TCP transport against deterministic peers. They reproduce timeout -> late
-reply -> collect -> next request, and capture errors after completed EXEC,
-checking that no second child is submitted. Those peer tests do not execute
-the guest CPU, DOS, or a compiler. The separate opt-in live-DOS suite covers
-real guest execution and timeout recovery. These client changes do not require
-a change to DOSCTRL.COM or its ASM source.
+reply -> collect -> next request, enforce a 125 ms poll limit and RPC socket
+deadlines, and capture errors after completed EXEC, checking that no second
+child is submitted. Those peer tests do not execute the guest CPU, DOS, or a
+compiler. The separate opt-in live-DOS suite covers real guest execution and
+timeout recovery. These client changes do not require a change to DOSCTRL.COM
+or its ASM source.
