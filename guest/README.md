@@ -10,8 +10,11 @@ For the pinned Pyro II setup, follow its
 [DOS-control guide](https://github.com/janrysavy/pyro221_next/blob/master/docs/PYPC_DOS_CONTROL.md)
 for startup polls, interactive steering, host edits, and emulator cleanup.
 
-Build on Windows with `nasm -f bin -o DOSCTRL.COM guest/dos_control.asm`.
-Place the COM file on a DOS-mounted drive, select that drive, and run
+To rebuild from source on Windows, use
+`nasm -f bin -o DOSCTRL.COM guest/dos_control.asm`. The Pyro II parent
+repository also tracks a verified 3,034-byte build at `tools/pypc/DOSCTRL.COM`;
+its launcher checks both the ASM and COM SHA-256 values and needs no assembler
+at runtime. Place the COM file on a DOS-mounted drive, select that drive, and run
 `DOSCTRL` from the guest prompt. Then call `guest/dos_control.py` from the
 host. PyPC's default JSON-RPC port is 2301; the Pyro II scratch launcher uses
 12311. For example, after the worker reports ready:
@@ -23,11 +26,12 @@ python guest/dos_control.py --rpc-port 12311 exec 'D:\TP6\TPC.EXE' ' D:\WORK\HEL
 ```
 
 The Pyro II repository's `scripts/pypc_dos.py` stages a fresh DOS system disk,
-its pinned private `tools/dostools/Mount` submodule, and an assembled COM in
+its pinned private `tools/dostools/Mount` submodule, and that verified COM in
 one repository-local scratch run. Launch it there with
 `python scripts/pypc_dos.py launch --name RUN`; its printed `drive` is the
 host directory behind guest `D:`. `--mount PATH` accepts another DOS 8.3
-tree. Its `sync WORK\SOURCE.PAS --name RUN` command publishes a host edit
+tree. `--with-game` also copies the parent's `bin/` into scratch `D:\WORK`.
+Its `sync WORK\SOURCE.PAS --name RUN` command publishes a host edit
 through DOS and checks the guest readback hash.
 Use `--host-root PATH` after importing a snapshot into a new host directory.
 The FAT16 mount caches its image at startup: editing a mounted host file alone

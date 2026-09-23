@@ -58,11 +58,14 @@ python scripts/pypc_dos.py launch --name my-run
 
 The launcher clones the DOS boot disk and `tools/dostools/Mount` into new
 repository-local scratch directories, checks every copied file hash, creates
-`D:\WORK`, assembles `DOSCTRL.COM` with NASM, and starts PyPC with
-`--host-dir`, `--dos-mailbox`, and JSON-RPC on port 12311. It prints JSON with
+`D:\WORK`, copies the parent's prebuilt, source-hash-checked `DOSCTRL.COM`
+without requiring NASM, and starts PyPC with `--host-dir`, `--dos-mailbox`,
+and JSON-RPC on port 12311. It prints JSON with
 the emulator PID and scratch host `D:` directory. `--mount PATH` selects
-another DOS 8.3 tool tree. `launch` returns before the RPC listener and DOS
-boot are ready; poll `screen` as shown in the complete guide. Once it shows
+another DOS 8.3 tool tree; `--with-game` also copies the parent repository's
+immutable `bin/` game files into scratch `D:\WORK`. `launch` returns before
+the RPC listener and DOS boot are ready; poll `screen` as shown in the complete
+guide. Once it shows
 the DOS prompt, enter `D:` and `DOSCTRL`, then poll `ready`:
 
 ```powershell
