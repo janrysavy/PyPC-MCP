@@ -1,0 +1,2 @@
+guest/fixtures/*.PAS text eol=crlf
+guest/fixtures/*.ASM text eol=crlf
