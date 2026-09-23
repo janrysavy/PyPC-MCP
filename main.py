@@ -124,7 +124,7 @@ try:
     devices.append(i8253.i8253())
     kb = keyboard.Keyboard()
     devices.append(kb)
-    devices.append(i8255.i8255(kb))
+    devices.append(i8255.i8255(kb, arguments.video))
     #scr = mda.MDA()
     scr = vga.VGA(False) if arguments.video == 'vga' else cga.CGA(False)
     devices.append(scr)
@@ -139,6 +139,8 @@ try:
 
     roms = []
     roms.append(rom.Rom('roms/GLABIOS.ROM', 0xf000 * 16 + 0xe000))
+    if arguments.video == 'vga':
+        roms.append(rom.Rom('roms/PYPCVGA.ROM', 0xc000 * 16))
     roms.append(rom.Rom('roms/ide_xt.bin', 0xd000 * 16 + 0x0000))
 
     b = bus.Bus(1024 * 1024, devices, roms)

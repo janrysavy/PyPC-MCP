@@ -94,10 +94,12 @@ def test_rom_bios_and_two_disk_reconstruction(tmp_path):
     install_machine(cpu, restored, rng)
     assert cpu._interrupt_service_hook.video is cpu._devices[3]
     assert capture_machine(cpu, bios_service=True) == original
-    # A real INT 10h mode query must use the restored video adapter.
+    # A native VGA mode query must use the restored video adapter. Text-mode
+    # queries deliberately chain to the GLaBIOS option-ROM fallback.
+    cpu._devices[3].BiosSetMode(0x13)
     cpu.GetState().SetAX(0x0f00)
     assert cpu._interrupt_service_hook(0x10, cpu.GetState())
-    assert cpu.GetState().GetAX() == 0x5003
+    assert cpu.GetState().GetAX() == 0x2813
     assert (cpu._devices[4]._disks[1].directory/'PYRO.DAT').read_bytes() == b'live host data'
 
 

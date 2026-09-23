@@ -3,15 +3,18 @@ import device
 import keyboard
 
 class i8255(device.Device):
-    def __init__(self, kb: keyboard.Keyboard):
+    def __init__(self, kb: keyboard.Keyboard, video: str = 'cga'):
+        if video not in ('cga', 'vga'):
+            raise ValueError('video must be cga or vga')
         self._control = 0
         self._dipswitches_high = False
         self._use_SW1 = False
         self._SW2 = 0
         self._kb = kb
 
-        #if (_system_type == SystemType.XT)
-        self._SW1 = 0b00100000  # 2 floppy-drives, CGA80, 256kB, IPL bit
+        # XT SW1: bit 0 clear means no floppy; bits 4-5 select video.
+        # 10b is CGA 80-column and 00b lets an EGA/VGA option ROM select mode.
+        self._SW1 = 0b00100000 if video == 'cga' else 0
         #else
         #{
         #    _SW1 = (2 << 4) /*(cga80)*/ | (3 << 2 /* memory banks*/)

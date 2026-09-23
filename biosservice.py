@@ -6,5 +6,7 @@ class VGAInterruptService:
         self.video = video
 
     def __call__(self, number, registers):
-        return (number == 0x10 and registers.GetCS() != 0xf000
+        return (number == 0x10
+                and (registers.GetCS() != 0xf000
+                     or registers.GetAH() == 0x1a)
                 and self.video.BiosInterrupt(registers))

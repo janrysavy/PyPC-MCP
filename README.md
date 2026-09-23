@@ -41,9 +41,18 @@
 > PROGRAM
 > ```
 >
-> For the text-only VGA adapter, add `--video vga` at startup. It supports the
-> 80×25 and 40×25 text modes, VGA attributes, cursor registers, page flips, and
-> plane-2 font access through the JSON-RPC API.
+> For the text-only VGA adapter, add `--video vga` at startup. The motherboard
+> switches exposed to the BIOS then report EGA/VGA; the default `--video cga`
+> reports 80-column CGA. VGA supports the 80×25 and 40×25 text modes, VGA
+> attributes, cursor registers, page flips, and plane-2 font access through the
+> JSON-RPC API.
+
+## Firmware
+
+The repository includes the bootable GLaBIOS and VGA option ROM binaries. A
+recursive clone also gets their exact sources: GLaBIOS is pinned under
+`firmware/glabios` to the stable v0.4.2 based PyPC branch, and the VGA bridge
+source is under `roms`. See [the firmware build and configuration record](docs/GLABIOS.md).
 
 ## DOS compiler automation
 
@@ -112,7 +121,7 @@ to release its fixed ports. The complete guide shows both steps.
 PyPC is an IBM PC (8088) emulator written in Python.
 
 It boots and you can run e.g. MS-DOS with CheckIt3 or SpaceQuest 3 in it.
-You need to have 'GLABIOS.ROM' in the directory from which you start 'main.py'. It requires python 3.12 or later.
+The required firmware is committed under `roms`. It requires Python 3.12 or later.
 When it is running, you can also connect a VNC client to it: you see it then use the original font and see nice graphics.
 
 

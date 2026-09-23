@@ -151,7 +151,8 @@ def live_dos(tmp_path_factory):
     env.setdefault('ProgramData', r'C:\ProgramData')
     env.setdefault('ALLUSERSPROFILE', r'C:\ProgramData')
     report = {'boot_sha256': boot_hash, 'worker_sha256': digest(drive / 'DOSCTRL.COM'),
-              'tool_mount_supplied': bool(mount), 'commands': []}
+              'tool_mount_supplied': bool(mount), 'vga_post_seen': False,
+              'commands': []}
     with (directory / 'stdout.log').open('w') as out, (directory / 'stderr.log').open('w') as err:
         process = subprocess.Popen(
             [sys.executable, '-u', str(ROOT / 'main.py'), '--video', 'vga', '--dos-mailbox',
@@ -161,20 +162,23 @@ def live_dos(tmp_path_factory):
         live = LiveDOS(RPC(rpc_port), process, directory, report)
         live.save()
         try:
-            last_key = [0.0]
             def at_prompt():
                 screen = live.screen()
                 report['last_screen'] = screen
+                if re.search(r'Video\s+\[ VGA \]', screen):
+                    report['vga_post_seen'] = True
                 if re.search(r'(?m)^[A-Z]:(?:\\[^>\n]*)?>\s*$', screen):
                     return True
                 lower = screen.lower()
                 if any(t in lower for t in ('press any key', 'press the any key', 'strike any key',
                                              'enter new date', 'enter new time')):
-                    if time.monotonic() - last_key[0] > 2:
-                        live.type(' ')
-                        last_key[0] = time.monotonic()
+                    raise AssertionError('unexpected interactive BIOS/DOS boot prompt: ' + screen)
                 return False
             live.wait(at_prompt, 'DOS command prompt', seconds=180)
+            assert report['vga_post_seen'], 'VGA POST identification was not observed'
+            int10 = live.rpc.call('memory.read', {'address': 0x40, 'length': 4})
+            assert int10['data_hex'] == '9c0000c0', 'VGA option ROM did not install INT 10h'
+            report['int10_vector_hex'] = int10['data_hex']
             live.type('d:\n')
             live.wait(lambda: re.search(r'(?m)^D:\\[^>\n]*>\s*$', live.screen()), 'D: prompt')
             live.type('dosctrl\n')
