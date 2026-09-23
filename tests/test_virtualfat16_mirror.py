@@ -44,6 +44,39 @@ def test_guest_root_file_delete_removes_host_path():
         assert not path.exists()
 
 
+def test_guest_directory_rename_moves_tracked_tree():
+    with tempfile.TemporaryDirectory() as temporary:
+        root = pathlib.Path(temporary)
+        old_directory = root / 'OLD'
+        old_directory.mkdir()
+        (old_directory / 'FILE.BIN').write_bytes(b'nested bytes')
+        disk = HostDirectoryFAT16(root)
+        root_start, sector = root_sector(disk)
+        assert sector[:11] == b'OLD        '
+
+        sector[:11] = b'NEW        '
+        disk.Write(root_start * disk.sector_size, sector)
+
+        assert not old_directory.exists()
+        assert (root / 'NEW' / 'FILE.BIN').read_bytes() == b'nested bytes'
+
+
+def test_guest_directory_delete_removes_only_tracked_tree():
+    with tempfile.TemporaryDirectory() as temporary:
+        root = pathlib.Path(temporary)
+        directory = root / 'DELETE'
+        directory.mkdir()
+        (directory / 'FILE.BIN').write_bytes(b'nested bytes')
+        disk = HostDirectoryFAT16(root)
+        root_start, sector = root_sector(disk)
+        assert sector[:11] == b'DELETE     '
+
+        sector[0] = 0xE5
+        disk.Write(root_start * disk.sector_size, sector)
+
+        assert not directory.exists()
+
+
 def test_guest_delete_refuses_to_remove_externally_changed_host_file(capsys):
     with tempfile.TemporaryDirectory() as temporary:
         root = pathlib.Path(temporary)
@@ -75,3 +108,24 @@ def test_guest_delete_does_not_remove_untracked_host_entry():
 
         assert not tracked.exists()
         assert untracked.read_bytes() == b'created after mount'
+
+
+def test_guest_directory_delete_preserves_unknown_nested_host_content(capsys):
+    with tempfile.TemporaryDirectory() as temporary:
+        root = pathlib.Path(temporary)
+        directory = root / 'TRACKED'
+        directory.mkdir()
+        tracked = directory / 'FILE.BIN'
+        tracked.write_bytes(b'tracked')
+        disk = HostDirectoryFAT16(root)
+        host_only = directory / 'HOSTONLY.TXT'
+        host_only.write_bytes(b'external host file')
+        root_start, sector = root_sector(disk)
+
+        sector[0] = 0xE5
+        disk.Write(root_start * disk.sector_size, sector)
+
+        assert not tracked.exists()
+        assert host_only.read_bytes() == b'external host file'
+        assert directory.exists()
+        assert 'ignored invalid guest filesystem write' in capsys.readouterr().out
