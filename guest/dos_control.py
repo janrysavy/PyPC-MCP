@@ -48,6 +48,36 @@ class DOSCommandError(RuntimeError):
         }
 
 
+class DOSReplyAcknowledgementError(RuntimeError):
+    """A reply was read, but the worker did not confirm its acknowledgement.
+
+    `reply` preserves the exact RUN1 result. Do not rerun the command. The
+    mailbox may still contain this reply, or the acknowledgement may have
+    taken effect without its confirmation reaching the client.
+    """
+
+    def __init__(self, command: str, reply: tuple[int, int, bytes]):
+        self.command = command
+        self.reply = reply
+        self.result: dict = {}
+        super().__init__(
+            f'DOS {command} reply was read, but acknowledgement was not '
+            'confirmed; do not rerun the command')
+
+    def as_error(self) -> dict:
+        status, dos_error, payload = self.reply
+        return {
+            'kind': 'acknowledgement',
+            'command': self.command,
+            'message': str(self),
+            'reply': {
+                'status': status,
+                'dos_error': dos_error,
+                'data_base64': base64.b64encode(payload).decode('ascii'),
+            },
+        }
+
+
 class DOSOutputError(RuntimeError):
     """Capture retrieval failed after EXEC completed and was acknowledged.
 
@@ -165,19 +195,31 @@ class DOSControl:
                     raise RuntimeError('DOS worker returned oversized data')
                 result = self.rpc.read(BASE + DATA, length) if length else b''
                 status, error = header[6], struct.unpack_from('<H', header, 8)[0]
-                self.rpc.call('execution.pause')
                 try:
-                    self.rpc.write(BASE, b'\0')
-                finally:
-                    self.rpc.call('execution.continue')
+                    self.rpc.call('execution.pause')
+                    try:
+                        self.rpc.write(BASE, b'\0')
+                    finally:
+                        self.rpc.call('execution.continue')
+                except Exception as exc:
+                    raise DOSReplyAcknowledgementError(
+                        command, (status, error, result)) from exc
                 if command == 'Q':
                     return status, error, result
-                while time.monotonic() < deadline:
-                    if self.rpc.read(BASE, 1) == b'\x03':
-                        break
-                    time.sleep(0.05)
-                else:
-                    raise TimeoutError('DOS worker did not acknowledge response')
+                # A reply received at the end of the execution wait still
+                # needs its own bounded acknowledgement window.
+                ack_deadline = time.monotonic() + self.timeout
+                try:
+                    while time.monotonic() < ack_deadline:
+                        if self.rpc.read(BASE, 1) == b'\x03':
+                            break
+                        time.sleep(min(0.05, max(0, ack_deadline - time.monotonic())))
+                    else:
+                        raise TimeoutError(
+                            'DOS worker did not acknowledge response')
+                except Exception as exc:
+                    raise DOSReplyAcknowledgementError(
+                        command, (status, error, result)) from exc
                 return status, error, result
             if header[0] != 1:
                 raise RuntimeError(f'unexpected DOS worker state: {header[0]}')
@@ -286,7 +328,13 @@ class DOSControl:
             raise DOSClientInputError(
                 'DOS command tail must be at most 125 ASCII bytes')
         out_path = self._path(output) if output else b'\0'
-        result = self._ok('X', self._path(program) + encoded + b'\0' + out_path)
+        try:
+            reply = self.request(
+                'X', self._path(program) + encoded + b'\0' + out_path)
+        except DOSReplyAcknowledgementError as exc:
+            exc.result = self._exec_acknowledgement_result(exc.reply, output)
+            raise
+        result = self._checked_reply('X', reply)
         return self._exec_response(result, output)
 
     def collect_exec(self, output: str | None = None) -> dict:
@@ -294,8 +342,27 @@ class DOSControl:
         # Validate optional metadata before acknowledging the child status.
         if output:
             self._path(output)
-        result = self._checked_reply('X', self.collect('X'))
+        try:
+            reply = self.collect('X')
+        except DOSReplyAcknowledgementError as exc:
+            exc.result = self._exec_acknowledgement_result(exc.reply, output)
+            raise
+        result = self._checked_reply('X', reply)
         return self._exec_response(result, output)
+
+    @staticmethod
+    def _exec_acknowledgement_result(
+            reply: tuple[int, int, bytes], output: str | None) -> dict:
+        status, dos_error, payload = reply
+        if status == 0 and len(payload) == 2:
+            result = {'exit_code': payload[0], 'termination_type': payload[1]}
+        else:
+            result = {'dos_status': status, 'dos_error': dos_error}
+            if status == 0:
+                result['reply_data_base64'] = base64.b64encode(payload).decode('ascii')
+        if output:
+            result['output_path'] = output
+        return result
 
     def _exec_response(self, result: bytes, output: str | None) -> dict:
         if len(result) != 2:
@@ -318,7 +385,11 @@ class DOSControl:
 
 def _print_cli_failure(exc: Exception) -> int:
     result = {}
-    if isinstance(exc, DOSOutputError):
+    if isinstance(exc, DOSReplyAcknowledgementError):
+        result = exc.result
+        error = exc.as_error()
+        exit_code = 1
+    elif isinstance(exc, DOSOutputError):
         result = exc.result
         error = exc.as_error()
         exit_code = 1

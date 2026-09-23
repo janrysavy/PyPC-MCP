@@ -14,6 +14,12 @@ class MailboxPeer:
         self.submissions = 0
         self.writes = []
         self.complete_on_read = False
+        self.clock = None
+        self.advance_reply_header_to = None
+        self.ack_delay = 0
+        self.ack_ready_at = None
+        self.never_ready_after_ack = False
+        self.fail_ack_method = None
 
     def finish(self, data=b'\x07\x00', status=0, error=0):
         self.memory[client.DATA:client.DATA + len(data)] = data
@@ -23,8 +29,16 @@ class MailboxPeer:
         self.memory[0] = 2
 
     def read(self, address, length):
+        if (self.ack_ready_at is not None and self.clock is not None
+                and self.clock[0] >= self.ack_ready_at):
+            self.memory[0] = 3
+            self.ack_ready_at = None
         offset = address - client.BASE
         result = bytes(self.memory[offset:offset + length])
+        if (length == 16 and result[0] == 2
+                and self.advance_reply_header_to is not None):
+            self.clock[0] = self.advance_reply_header_to
+            self.advance_reply_header_to = None
         if self.complete_on_read and self.memory[0] == 1:
             self.complete_on_read = False
             self.finish()
@@ -39,8 +53,13 @@ class MailboxPeer:
 
     def call(self, method, params=None):
         assert method in ('execution.pause', 'execution.continue')
+        if method == self.fail_ack_method:
+            raise ConnectionError('simulated acknowledgement transport failure')
         if method == 'execution.continue' and self.memory[0] == 0:
-            self.memory[0] = 3
+            if not self.never_ready_after_ack:
+                self.ack_ready_at = self.clock[0] + self.ack_delay
+                if self.ack_delay == 0:
+                    self.memory[0] = 3
         return {}
 
 
@@ -50,7 +69,9 @@ def peer(monkeypatch):
     now = [0.0]
     monkeypatch.setattr(client.time, 'monotonic', lambda: now[0])
     monkeypatch.setattr(client.time, 'sleep', lambda seconds: now.__setitem__(0, now[0] + seconds))
-    return MailboxPeer()
+    result = MailboxPeer()
+    result.clock = now
+    return result
 
 
 def leave_timed_out_exec(peer):
@@ -93,6 +114,52 @@ def test_collect_timeout_preserves_job_for_another_attempt(peer):
     peer.finish()
     assert worker.collect_exec()['exit_code'] == 7
     assert peer.submissions == 1
+
+
+def test_acknowledgement_wait_gets_its_own_budget(peer):
+    peer.finish()
+    peer.memory[1] = ord('X')
+    # The reply arrives just before the execution deadline. The worker takes
+    # another 50 ms to observe the acknowledgement, crossing that deadline.
+    peer.advance_reply_header_to = 0.24
+    peer.ack_delay = 0.05
+    assert client.DOSControl(peer, timeout=0.25).collect('X') == (
+        0, 0, b'\x07\x00')
+    assert peer.memory[0] == 3
+
+
+def test_acknowledgement_timeout_retains_the_completed_raw_reply(peer):
+    peer.finish()
+    peer.memory[1] = ord('X')
+    peer.never_ready_after_ack = True
+    with pytest.raises(client.DOSReplyAcknowledgementError) as caught:
+        client.DOSControl(peer, timeout=0.25).collect('X')
+    assert caught.value.reply == (0, 0, b'\x07\x00')
+    assert caught.value.as_error()['kind'] == 'acknowledgement'
+    assert peer.memory[0] == 0
+
+
+def test_collect_exec_acknowledgement_error_retains_child_status(peer):
+    peer.finish()
+    peer.memory[1] = ord('X')
+    peer.never_ready_after_ack = True
+    with pytest.raises(client.DOSReplyAcknowledgementError) as caught:
+        client.DOSControl(peer, timeout=0.25).collect_exec(r'D:\JOB.LOG')
+    assert caught.value.result == {
+        'exit_code': 7,
+        'termination_type': 0,
+        'output_path': r'D:\JOB.LOG',
+    }
+
+
+def test_acknowledgement_transport_failure_retains_the_completed_raw_reply(peer):
+    peer.finish()
+    peer.memory[1] = ord('X')
+    peer.fail_ack_method = 'execution.pause'
+    with pytest.raises(client.DOSReplyAcknowledgementError) as caught:
+        client.DOSControl(peer).collect('X')
+    assert caught.value.reply == (0, 0, b'\x07\x00')
+    assert peer.memory[0] == 2
 
 
 @pytest.mark.parametrize('state,command,marker', [
