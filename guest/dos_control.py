@@ -26,7 +26,8 @@ class RPC:
 
     def call(self, method: str, params: dict | None = None) -> dict:
         self.sequence += 1
-        request = {'jsonrpc': '2.0', 'id': self.sequence,
+        request_id = self.sequence
+        request = {'jsonrpc': '2.0', 'id': request_id,
                    'method': method, 'params': params or {}}
         with socket.create_connection(('127.0.0.1', self.port), 20) as sock:
             sock.settimeout(20)
@@ -36,7 +37,7 @@ class RPC:
         if not line.endswith(b'\n') or len(line) > 16 * 1024 * 1024:
             raise RuntimeError('incomplete or oversized PyPC reply')
         reply = json.loads(line)
-        if reply.get('id') != self.sequence:
+        if reply.get('id') != request_id:
             raise RuntimeError('PyPC reply id mismatch')
         if 'error' in reply:
             raise RuntimeError(f'{method}: {reply["error"]}')
@@ -94,6 +95,8 @@ class DOSControl:
                     self.rpc.write(BASE, b'\0')
                 finally:
                     self.rpc.call('execution.continue')
+                if command == 'Q':
+                    return status, error, result
                 while time.monotonic() < deadline:
                     if self.rpc.read(BASE, 1) == b'\x03':
                         break
@@ -149,7 +152,7 @@ class DOSControl:
                 raise RuntimeError('DOS worker reported a short append')
         return {'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
 
-    def get(self, guest: str, local: Path) -> dict:
+    def read_file(self, guest: str) -> bytes:
         path = self._path(guest)
         data = bytearray()
         while True:
@@ -158,18 +161,51 @@ class DOSControl:
             if not piece:
                 break
             data.extend(piece)
+        return bytes(data)
+
+    def get(self, guest: str, local: Path) -> dict:
+        data = self.read_file(guest)
         local.parent.mkdir(parents=True, exist_ok=True)
         local.write_bytes(data)
         return {'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
 
-    def exec(self, program: str, tail: str = '') -> dict:
+    def cwd(self) -> str:
+        result = self._ok('G', b'')
+        if not result.endswith(b'\0'):
+            raise RuntimeError('DOS worker returned invalid cwd')
+        return result[:-1].decode('ascii')
+
+    def chdir(self, path: str) -> None:
+        self._ok('S', self._path(path))
+
+    def mkdir(self, path: str) -> None:
+        self._ok('M', self._path(path))
+
+    def delete(self, path: str) -> None:
+        self._ok('D', self._path(path))
+
+    def rename(self, old: str, new: str) -> None:
+        self._ok('V', self._path(old) + self._path(new))
+
+    def quit(self) -> None:
+        self._ok('Q', b'')
+
+    def exec(self, program: str, tail: str = '', output: str | None = None) -> dict:
         encoded = tail.encode('ascii')
         if len(encoded) > 125 or b'\0' in encoded:
             raise ValueError('DOS command tail must be at most 125 ASCII bytes')
-        result = self._ok('X', self._path(program) + encoded + b'\0')
+        out_path = self._path(output) if output else b'\0'
+        result = self._ok('X', self._path(program) + encoded + b'\0' + out_path)
         if len(result) != 2:
             raise RuntimeError('DOS worker returned invalid child status')
-        return {'exit_code': result[0], 'termination_type': result[1]}
+        response = {'exit_code': result[0], 'termination_type': result[1]}
+        if output:
+            data = self.read_file(output)
+            response.update(output_path=output, output_bytes=len(data),
+                            output_sha256=hashlib.sha256(data).hexdigest(),
+                            output_base64=base64.b64encode(data).decode('ascii'),
+                            output_text=data.decode('cp437', errors='replace'))
+        return response
 
 
 def main():
@@ -178,8 +214,19 @@ def main():
     parser.add_argument('--timeout', type=float, default=120)
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('ready')
+    sub.add_parser('cwd')
+    sub.add_parser('quit')
     listing = sub.add_parser('list')
     listing.add_argument('pattern')
+    changing = sub.add_parser('chdir')
+    changing.add_argument('path')
+    making = sub.add_parser('mkdir')
+    making.add_argument('path')
+    deleting = sub.add_parser('delete')
+    deleting.add_argument('path')
+    renaming = sub.add_parser('rename')
+    renaming.add_argument('old')
+    renaming.add_argument('new')
     putting = sub.add_parser('put')
     putting.add_argument('local', type=Path)
     putting.add_argument('guest')
@@ -189,18 +236,36 @@ def main():
     running = sub.add_parser('exec')
     running.add_argument('program')
     running.add_argument('tail', nargs='?', default='')
+    running.add_argument('--output', help='DOS path for captured standard handles')
     args = parser.parse_args()
     worker = DOSControl(RPC(args.rpc_port), args.timeout)
     if args.command == 'ready':
         result = {'ready': worker.ready()}
     elif args.command == 'list':
         result = worker.list(args.pattern)
+    elif args.command == 'cwd':
+        result = {'cwd': worker.cwd()}
+    elif args.command == 'chdir':
+        worker.chdir(args.path)
+        result = {'cwd': worker.cwd()}
+    elif args.command == 'mkdir':
+        worker.mkdir(args.path)
+        result = {'created': args.path}
+    elif args.command == 'delete':
+        worker.delete(args.path)
+        result = {'deleted': args.path}
+    elif args.command == 'rename':
+        worker.rename(args.old, args.new)
+        result = {'old': args.old, 'new': args.new}
+    elif args.command == 'quit':
+        worker.quit()
+        result = {'quit': True}
     elif args.command == 'put':
         result = worker.put(args.local, args.guest)
     elif args.command == 'get':
         result = worker.get(args.guest, args.local)
     else:
-        result = worker.exec(args.program, args.tail)
+        result = worker.exec(args.program, args.tail, args.output)
     print(json.dumps(result, indent=2))
 
 

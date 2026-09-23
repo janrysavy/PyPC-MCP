@@ -16,6 +16,8 @@ class IO:
         self._hardware_trace_hook = None
         self._hardware_trace_address = None
         self._hardware_trace_clock = 0
+        self._video_write_device = None
+        self._video_write_hook = None
 
         for device in devices:
             device.SetDma(self._i8237)
@@ -51,6 +53,10 @@ class IO:
         self._hardware_trace_address = address
         self._hardware_trace_clock = clock
         self._pic.SetTraceContext(address, clock)
+
+    def SetVideoWriteHook(self, video_device, hook):
+        self._video_write_device = video_device if hook is not None else None
+        self._video_write_hook = hook
 
     def In(self, addr: int, b16: bool) -> int:
         if self._test_mode:
@@ -111,6 +117,12 @@ class IO:
             if next_port in self._io_map:
                 rc |= self._io_map[next_port].IO_Write(next_port, (value >> 8) & 255)
                 handled = True
+
+        if self._video_write_hook is not None and (
+                self._io_map.get(addr) is self._video_write_device or
+                (b16 and self._io_map.get((addr + 1) & 0xffff)
+                 is self._video_write_device)):
+            self._video_write_hook(addr, value, 2 if b16 else 1)
 
         if self._trace_hook is not None:
             self._trace_hook('io_write', addr, value, 2 if b16 else 1, handled)

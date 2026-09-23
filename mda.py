@@ -11,6 +11,7 @@ class MDA(graphics.Graphics):
         self._hsync: bool = False
         self._last_update: int = 0
         self._frame_version: int = 1
+        self._video_history = None
         self._font = font.Font().get_font()
         self._display_address = 0
         self._ram_offset = 0xb0000
@@ -85,7 +86,10 @@ class MDA(graphics.Graphics):
         use_offset = (offset - self._ram_offset) & 0x3fff
         value &= 0xff
         if self._ram[use_offset] != value:
+            old = self._ram[use_offset]
             self._ram[use_offset] = value
+            if self._video_history is not None:
+                self._video_history.text_write(use_offset, old, value)
             self._mark_frame_dirty()
         # self._last_update += 1
 

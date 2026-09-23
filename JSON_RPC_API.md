@@ -16,6 +16,9 @@ TCP 127.0.0.1:2301
 
 Use `--rpc-port`, `--telnet-port`, and `--vnc-port` to run another instance
 alongside an existing one. Defaults are 2301, 2300, and 5902 respectively.
+`--dos-mailbox` optionally reserves physical `D8000h-D9FFFh` for the DOS
+control worker. It uses this same RPC endpoint through `memory.read/write`;
+see `guest/README.md`.
 Ports must be distinct integers in 1..65535. `agent.capabilities.endpoint`
 reports the selected RPC port. Each instance should use its own writable disks.
 
@@ -60,6 +63,9 @@ Numbers may be JSON integers or strings accepted by Python `int(value, 0)`, such
 | `video.text` | Read the active CGA or VGA text screen directly from video memory. |
 | `video.snapshot` | Capture immutable video-memory, graphics VRAM, font, and decoded-text bytes. |
 | `video.snapshot.read` | Read a bounded component from a retained video snapshot. |
+| `video.history.start` | Start an optional ordered text VRAM/font/port write journal. |
+| `video.history.read` | Page retained video events and report any overflow. |
+| `video.history.stop` | Stop recording while retaining readable events. |
 | `io.read` | Read one byte from an emulated I/O port. |
 | `io.write` | Write one byte to an emulated I/O port while paused. |
 | `input.keyboard` | Queue XT keyboard make/break scan codes. |
@@ -106,6 +112,7 @@ Result:
   "methods":["agent.capabilities","emulator.info","state.get_registers",
     "state.get","state.set_registers","session.status","memory.read",
     "memory.write","video.text","video.snapshot","video.snapshot.read",
+    "video.history.start","video.history.read","video.history.stop",
     "io.read","io.write","input.keyboard","keyboard.scancode","input.state",
     "execution.pause","execution.continue","execution.go",
     "execution.run_until","execution.wait","execution.step",
@@ -388,6 +395,35 @@ Reads one retained snapshot component. Parameters:
   "component_sha256":"...","data_base64":"...","sha256":"..."
 }
 ```
+
+## `video.history.start`, `video.history.read`, `video.history.stop`
+
+`video.text` and `video.snapshot` cannot recover characters that appeared and
+were overwritten between requests. `video.history.start` enables an opt-in
+ordered journal of changed text VRAM bytes, VGA font-plane bytes, video port
+writes, and VGA text clear/mode events. Its `capacity` is 1..1,000,000 events
+(default 500,000). The start result includes `history_id`, `clock`, display
+metadata, and base64 initial text VRAM with SHA-256. VGA also includes the
+initial plane-2 font. The start call is handled at an instruction boundary.
+
+`video.history.read` takes `{"history_id":"video-1","cursor":null,"limit":1024}`.
+It returns ordered `events` with `sequence`, emulated `clock`, `kind`, `address`,
+`old`, and `new`, plus `next_cursor`, `first_available_sequence`, and
+`lost_events`. For `text` and `font`, `address` is the byte offset and `old`/
+`new` are byte values. For `port`, `address` is the port, `old` is transfer
+width (1 or 2), and `new` is the value. `clear_text` resets text VRAM to zero;
+`mode` gives the new mode number, columns, and display offset in those three
+fields. Pass `next_cursor` to read the next page. When `next_cursor` is null
+but recording continues, pass `next_sequence - 1` in a later poll to receive
+only newer events. A cursor older than retained events is rejected. A nonzero
+`lost_events` means history is incomplete.
+
+`video.history.stop` disables new recording and returns the event/loss counts;
+the retained stream remains readable until another start or machine restore.
+Recording is off by default. This is text display-state history, not a DOS
+stdout stream or a semantic scrollback parser. Graphics VRAM writes are not
+journaled. Clients must drain and persist pages before ring overflow if they
+need a complete run. Snapshot restore invalidates the stream.
 
 ## `io.read`
 
@@ -726,6 +762,7 @@ API, classified for this PyPC transport:
 | `checkpoints.create/list/restore/delete` | Deferred | No complete machine snapshot serializer. |
 | `video.snapshot` | Implemented (CGA and VGA text/12h/13h) | Immutable raw VRAM/text snapshot; VGA also includes plane-2 fonts and lossless graphics VRAM for modes 12h/13h. |
 | `video.snapshot.read` | Implemented (`vram`, `text`, VGA `font`/`graphics_vram`) | Bounded retained-component reads. |
+| `video.history.start/read/stop` | Implemented (text state) | Ordered changed VRAM/font/port events; overflow is explicit, graphics VRAM excluded. |
 | `memory.read` | Implemented | Bus-backed 1 MiB reads. |
 | `memory.write` | Implemented | Paused, SHA-guarded bus writes. |
 | `io.write` | Implemented | Paused byte write through the emulated I/O bus. |
@@ -759,6 +796,10 @@ execution request. Restored disks use new paths under `disk_root`. No existing
 disk is overwritten. Input/display locks exclude frontend mutation during the
 state transaction; external filesystem writers must be stopped by the caller.
 Emulator source hashes must match and the live video adapter type must match.
+When `--dos-mailbox` is enabled, a version-2 machine bundle embeds its 8192-byte
+window. Import requires the same mailbox setting as the live machine and
+validates the window hash before installing any guest state. Without the option,
+version-1 bundle layout is unchanged.
 
 Debugger breakpoints remain configured. Pending operations, instruction and
 hardware trace journals and retained video snapshots are cleared. Revision and

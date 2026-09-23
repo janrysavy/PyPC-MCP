@@ -53,6 +53,18 @@ dispatch:
     je read_file
     cmp al,'X'
     je exec_file
+    cmp al,'S'
+    je set_cwd
+    cmp al,'M'
+    je make_dir
+    cmp al,'D'
+    je delete_file
+    cmp al,'V'
+    je rename_file
+    cmp al,'G'
+    je get_cwd
+    cmp al,'Q'
+    je done
     cmp al,'T'
     je done
     mov byte [es:6],1
@@ -241,6 +253,95 @@ invalid_request_close:
     int 21h
     jmp invalid_request
 
+set_cwd:
+    call copy_path
+    jc invalid_request
+    cmp byte [pathbuf+1],':'
+    jne .change
+    mov dl,[pathbuf]
+    and dl,0DFh
+    sub dl,'A'
+    cmp dl,25
+    ja invalid_request
+    mov ah,0Eh
+    int 21h
+.change:
+    mov dx,pathbuf
+    mov ah,3Bh
+    int 21h
+    jc dos_error
+    jmp done
+
+make_dir:
+    call copy_path
+    jc invalid_request
+    mov dx,pathbuf
+    mov ah,39h
+    int 21h
+    jc dos_error
+    jmp done
+
+delete_file:
+    call copy_path
+    jc invalid_request
+    mov dx,pathbuf
+    mov ah,41h
+    int 21h
+    jc dos_error
+    jmp done
+
+rename_file:
+    call copy_path
+    jc invalid_request
+    mov di,newpath
+.copy_new:
+    cmp di,newpath+127
+    jae invalid_request
+    mov al,[es:si]
+    mov [di],al
+    inc si
+    inc di
+    test al,al
+    jne .copy_new
+    cmp byte [newpath],0
+    je invalid_request
+    push es
+    push cs
+    pop es
+    mov dx,pathbuf
+    mov di,newpath
+    mov ah,56h
+    int 21h
+    pop es
+    jc dos_error
+    jmp done
+
+get_cwd:
+    mov ah,19h
+    int 21h
+    add al,'A'
+    mov [es:DATA_OFF],al
+    mov byte [es:DATA_OFF+1],':'
+    mov byte [es:DATA_OFF+2],'\'
+    mov dl,0
+    mov si,dirbuf
+    mov ah,47h
+    int 21h
+    jc dos_error
+    mov si,dirbuf
+    mov di,DATA_OFF+3
+.copy_dir:
+    mov al,[si]
+    mov [es:di],al
+    inc si
+    inc di
+    test al,al
+    jne .copy_dir
+    mov ax,di
+    sub ax,DATA_OFF
+    mov [es:4],ax
+    jmp done
+
 exec_file:
     call copy_path
     jc invalid_request
@@ -260,6 +361,24 @@ exec_file:
 .tail_done:
     mov [tailbuf],cl
     mov byte [di],13
+    mov di,logpath
+.log_path:
+    cmp di,logpath+127
+    jae invalid_request
+    mov al,[es:si]
+    mov [di],al
+    inc si
+    inc di
+    test al,al
+    jne .log_path
+    mov word [log_handle],0FFFFh
+    mov word [saved_stdout],0FFFFh
+    mov word [saved_stderr],0FFFFh
+    cmp byte [logpath],0
+    je .start_child
+    call capture_start
+    jc dos_error
+.start_child:
     push es
     push cs
     pop es
@@ -267,15 +386,90 @@ exec_file:
     mov dx,pathbuf
     mov ax,4B00h
     int 21h
+    pushf
+    mov [exec_result],ax
+    pop ax
+    mov [exec_flags],ax
     pop es
     push cs
     pop ds
-    jc dos_error
+    call capture_stop
+    test word [exec_flags],1
+    jnz .exec_failed
     mov ah,4Dh
     int 21h
     mov [es:DATA_OFF],ax            ; AL exit code, AH termination type.
     mov word [es:4],2
     jmp done
+.exec_failed:
+    mov ax,[exec_result]
+    jmp dos_error
+
+capture_start:
+    xor cx,cx
+    mov dx,logpath
+    mov ah,3Ch
+    int 21h
+    jc .fail
+    mov [log_handle],ax
+    mov bx,1
+    mov ah,45h
+    int 21h
+    jc .cleanup
+    mov [saved_stdout],ax
+    mov bx,2
+    mov ah,45h
+    int 21h
+    jc .cleanup
+    mov [saved_stderr],ax
+    mov bx,[log_handle]
+    mov cx,1
+    mov ah,46h
+    int 21h
+    jc .cleanup
+    mov bx,[log_handle]
+    mov cx,2
+    mov ah,46h
+    int 21h
+    jc .cleanup
+    clc
+    ret
+.cleanup:
+    mov [saved_error],ax
+    call capture_stop
+    mov ax,[saved_error]
+.fail:
+    stc
+    ret
+
+capture_stop:
+    cmp word [saved_stdout],0FFFFh
+    je .stderr
+    mov bx,[saved_stdout]
+    mov cx,1
+    mov ah,46h
+    int 21h
+    mov bx,[saved_stdout]
+    mov ah,3Eh
+    int 21h
+.stderr:
+    cmp word [saved_stderr],0FFFFh
+    je .log
+    mov bx,[saved_stderr]
+    mov cx,2
+    mov ah,46h
+    int 21h
+    mov bx,[saved_stderr]
+    mov ah,3Eh
+    int 21h
+.log:
+    cmp word [log_handle],0FFFFh
+    je .return
+    mov bx,[log_handle]
+    mov ah,3Eh
+    int 21h
+.return:
+    ret
 
 done:
     mov byte [es:0],2
@@ -286,16 +480,29 @@ done:
     hlt
     jmp .wait_ack
 .acknowledged:
+    cmp byte [es:1],'Q'
+    je .quit
     mov byte [es:0],3
     jmp poll
+.quit:
+    mov ax,4C00h
+    int 21h
 
 file_handle dw 0
 transfer_count dw 0
 transfer_offset dw 0
 saved_error dw 0
 pathbuf times 128 db 0
+newpath times 128 db 0
+logpath times 128 db 0
+dirbuf times 128 db 0
 dta times 128 db 0
 tailbuf times 130 db 0
+log_handle dw 0FFFFh
+saved_stdout dw 0FFFFh
+saved_stderr dw 0FFFFh
+exec_result dw 0
+exec_flags dw 0
 exec_params:
     dw 0                            ; Inherit environment.
     dw tailbuf

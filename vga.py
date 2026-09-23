@@ -179,6 +179,8 @@ class VGA(cga.CGA):
             self._cga_mode = self.CGAMode.G320
             self._set_frame_size(640, 400)
             self._clear_graphics_memory()
+            if self._video_history is not None:
+                self._video_history.mode_change(0x13, 40, self._display_address)
             return True
 
         if mode == 0x12:
@@ -189,6 +191,8 @@ class VGA(cga.CGA):
             self._cga_mode = self.CGAMode.G640
             self._set_frame_size(640, 480)
             self._clear_graphics_memory()
+            if self._video_history is not None:
+                self._video_history.mode_change(0x12, 80, self._display_address)
             return True
 
         if mode == 0x03:
@@ -198,7 +202,11 @@ class VGA(cga.CGA):
             self._graphics_mode = 3
             self._cga_mode = self.CGAMode.Text80
             self._set_frame_size(640, 400)
+            if self._video_history is not None:
+                self._video_history.text_clear()
             self._ram[:] = b'\x00' * len(self._ram)
+            if self._video_history is not None:
+                self._video_history.mode_change(3, 80, self._display_address)
             return True
 
         return False
@@ -348,7 +356,11 @@ class VGA(cga.CGA):
             if plane_mask is not None:
                 enabled_planes &= plane_mask
             if enabled_planes & (1 << plane):
-                self._planes[plane][plane_offset & 0xffff] = result & 0xff
+                target = plane_offset & 0xffff
+                before = self._planes[plane][target]
+                self._planes[plane][target] = result & 0xff
+                if plane == 2 and self._video_history is not None:
+                    self._video_history.font_write(target, before, result & 0xff)
 
     def _read_planar_byte(self, offset):
         if self._graphics_mode == 0x13:
@@ -416,7 +428,10 @@ class VGA(cga.CGA):
             index = offset - self._ram_offset
             value &= 0xff
             if self._ram[index] != value:
+                old = self._ram[index]
                 self._ram[index] = value
+                if self._video_history is not None:
+                    self._video_history.text_write(index, old, value)
                 self._mark_frame_dirty()
             return
         if 0xa0000 <= offset < 0xb0000:
@@ -448,7 +463,10 @@ class VGA(cga.CGA):
                 map_mask = 1
             for plane in range(4):
                 if map_mask & (1 << plane):
+                    old = self._planes[plane][plane_offset]
                     self._planes[plane][plane_offset] = value
+                    if plane == 2 and self._video_history is not None:
+                        self._video_history.font_write(plane_offset, old, value)
             self._mark_frame_dirty()
 
     def _write_crtc(self, port: int, value: int) -> bool:
