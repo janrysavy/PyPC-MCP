@@ -27,9 +27,11 @@
 >
 > The mount accepts DOS 8.3 names. Guest-created and modified files and
 > directories are synchronized into the selected directory and its
-> subdirectories. Symlinks, path escapes, guest deletions, and renames are not
-> supported. The FAT image is cached at startup. To publish a host edit while
-> DOS remains running, use the DOS control worker described below.
+> subdirectories. Symlinks and path escapes are rejected. Guest deletions and
+> renames change DOS's directory, but the host sync can leave old paths behind;
+> inspect the guest through the worker when exact state matters. The FAT image
+> is cached at startup. To publish a host edit while DOS remains running, use
+> the DOS control worker described below.
 >
 > In DOS, select the drive with `D:` and run a program, for example:
 >
@@ -45,7 +47,9 @@
 ## DOS compiler automation
 
 The Pyro II repository pins both this fork and the private `dostools` compiler
-tree as submodules. On Windows, from that repository's root:
+tree as submodules. Its [complete DOS-control guide](https://github.com/janrysavy/pyro221_next/blob/master/docs/PYPC_DOS_CONTROL.md)
+has the Windows PowerShell launch, readiness polls, host-edit, DEBUG, and
+cleanup sequence. From that repository's root:
 
 ```powershell
 git submodule update --init tools/pypc/src tools/dostools
@@ -55,9 +59,11 @@ python scripts/pypc_dos.py launch --name my-run
 The launcher clones the DOS boot disk and `tools/dostools/Mount` into new
 repository-local scratch directories, checks every copied file hash, creates
 `D:\WORK`, assembles `DOSCTRL.COM` with NASM, and starts PyPC with
-`--host-dir`, `--dos-mailbox`, and JSON-RPC on port 12311. It prints the
-scratch host `D:` directory. `--mount PATH` selects another DOS 8.3 tool tree.
-Wait until `screen` shows the DOS prompt, then enter `D:` and `DOSCTRL`:
+`--host-dir`, `--dos-mailbox`, and JSON-RPC on port 12311. It prints JSON with
+the emulator PID and scratch host `D:` directory. `--mount PATH` selects
+another DOS 8.3 tool tree. `launch` returns before the RPC listener and DOS
+boot are ready; poll `screen` as shown in the complete guide. Once it shows
+the DOS prompt, enter `D:` and `DOSCTRL`, then poll `ready`:
 
 ```powershell
 python scripts/pypc_dos.py screen --name my-run
@@ -87,6 +93,9 @@ other file requests until a child exits. For programs that write directly to
 the screen, `video.history` records overwritten text VRAM and reports loss if
 its ring fills. See [the guest worker guide](guest/README.md) and
 [the JSON-RPC contract](JSON_RPC_API.md).
+
+`quit` exits only `DOSCTRL.COM`; stop the emulator PID returned by `launch`
+to release its fixed ports. The complete guide shows both steps.
 
 PyPC is an IBM PC (8088) emulator written in Python.
 
