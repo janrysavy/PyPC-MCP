@@ -5,6 +5,8 @@ then use this module while PyPC's debugger RPC is reachable on loopback.
 The exec CLI prints the original DOS status as JSON and exits with the child's
 code. Abnormal termination with a zero DOS code maps to host status 1; inspect
 termination_type in the JSON to distinguish it from an ordinary child failure.
+Expected DOS, timeout, validation, and controller failures are also emitted as
+JSON without a Python traceback.
 """
 from __future__ import annotations
 
@@ -21,6 +23,29 @@ import time
 BASE = 0xD8000
 DATA = 0x20
 MAX_DATA = 4096
+
+
+class DOSClientInputError(ValueError):
+    """Invalid caller input that should be reported without a traceback."""
+
+
+class DOSCommandError(RuntimeError):
+    """A RUN1 command completed with a DOS/worker error status."""
+
+    def __init__(self, command: str, status: int, dos_error: int):
+        self.command = command
+        self.status = status
+        self.dos_error = dos_error
+        super().__init__(f'DOS {command}: status={status} error={dos_error}')
+
+    def as_error(self) -> dict:
+        return {
+            'kind': 'dos',
+            'command': self.command,
+            'status': self.status,
+            'dos_error': self.dos_error,
+            'message': str(self),
+        }
 
 
 class RPC:
@@ -62,7 +87,7 @@ class RPC:
 class DOSControl:
     def __init__(self, rpc: RPC, timeout: float = 120):
         if not math.isfinite(timeout) or timeout <= 0:
-            raise ValueError('timeout must be finite and greater than zero')
+            raise DOSClientInputError('timeout must be finite and greater than zero')
         self.rpc = rpc
         self.timeout = timeout
 
@@ -72,9 +97,9 @@ class DOSControl:
 
     def request(self, command: str, data: bytes = b'') -> tuple[int, int, bytes]:
         if len(command) != 1 or not command.isascii():
-            raise ValueError('one ASCII command byte required')
+            raise DOSClientInputError('one ASCII command byte required')
         if len(data) > MAX_DATA:
-            raise ValueError('request exceeds mailbox data capacity')
+            raise DOSClientInputError('request exceeds mailbox data capacity')
         header = self.rpc.read(BASE, 16)
         if header[10:14] != b'RUN1' or header[0] != 3:
             raise RuntimeError('DOS worker is absent or busy')
@@ -98,9 +123,9 @@ class DOSControl:
         A timeout does not cancel the DOS child or clear its mailbox.
         """
         if len(command) != 1 or not command.isascii():
-            raise ValueError('one ASCII command byte required')
+            raise DOSClientInputError('one ASCII command byte required')
         if not math.isfinite(self.timeout) or self.timeout <= 0:
-            raise ValueError('timeout must be finite and greater than zero')
+            raise DOSClientInputError('timeout must be finite and greater than zero')
         deadline = time.monotonic() + self.timeout
         while time.monotonic() < deadline:
             header = self.rpc.read(BASE, 16)
@@ -141,7 +166,7 @@ class DOSControl:
     def _checked_reply(command: str, reply: tuple[int, int, bytes]) -> bytes:
         status, error, result = reply
         if status:
-            raise RuntimeError(f'DOS {command}: status={status} error={error}')
+            raise DOSCommandError(command, status, error)
         return result
 
     def _ok(self, command: str, data: bytes) -> bytes:
@@ -149,9 +174,14 @@ class DOSControl:
 
     @staticmethod
     def _path(path: str) -> bytes:
-        encoded = path.encode('ascii')
+        try:
+            encoded = path.encode('ascii')
+        except UnicodeEncodeError as exc:
+            raise DOSClientInputError(
+                'DOS path must contain 1..126 ASCII bytes without NUL') from exc
         if not encoded or b'\0' in encoded or len(encoded) > 126:
-            raise ValueError('DOS path must contain 1..126 ASCII bytes without NUL')
+            raise DOSClientInputError(
+                'DOS path must contain 1..126 ASCII bytes without NUL')
         return encoded + b'\0'
 
     def list(self, pattern: str) -> list[dict]:
@@ -169,7 +199,7 @@ class DOSControl:
             })
             status, error, data = self.request('N')
         if status != 2:
-            raise RuntimeError(f'DOS list: status={status} error={error}')
+            raise DOSCommandError('L', status, error)
         return entries
 
     def put(self, local: Path, guest: str) -> dict:
@@ -223,9 +253,14 @@ class DOSControl:
         self._ok('Q', b'')
 
     def exec(self, program: str, tail: str = '', output: str | None = None) -> dict:
-        encoded = tail.encode('ascii')
+        try:
+            encoded = tail.encode('ascii')
+        except UnicodeEncodeError as exc:
+            raise DOSClientInputError(
+                'DOS command tail must be at most 125 ASCII bytes') from exc
         if len(encoded) > 125 or b'\0' in encoded:
-            raise ValueError('DOS command tail must be at most 125 ASCII bytes')
+            raise DOSClientInputError(
+                'DOS command tail must be at most 125 ASCII bytes')
         out_path = self._path(output) if output else b'\0'
         result = self._ok('X', self._path(program) + encoded + b'\0' + out_path)
         return self._exec_response(result, output)
@@ -249,6 +284,23 @@ class DOSControl:
                             output_base64=base64.b64encode(data).decode('ascii'),
                             output_text=data.decode('cp437', errors='replace'))
         return response
+
+
+def _print_cli_failure(exc: Exception) -> int:
+    if isinstance(exc, DOSCommandError):
+        error = exc.as_error()
+        exit_code = 1
+    elif isinstance(exc, DOSClientInputError):
+        error = {'kind': 'invalid_request', 'message': str(exc)}
+        exit_code = 2
+    elif isinstance(exc, TimeoutError):
+        error = {'kind': 'timeout', 'message': str(exc)}
+        exit_code = 1
+    else:
+        error = {'kind': 'controller', 'message': str(exc)}
+        exit_code = 1
+    print(json.dumps({'error': error}, indent=2))
+    return exit_code
 
 
 def main() -> int:
@@ -284,36 +336,40 @@ def main() -> int:
     running.add_argument('tail', nargs='?', default='')
     running.add_argument('--output', help='DOS path for captured standard handles')
     args = parser.parse_args()
-    worker = DOSControl(RPC(args.rpc_port), args.timeout)
-    if args.command == 'ready':
-        result = {'ready': worker.ready()}
-    elif args.command == 'list':
-        result = worker.list(args.pattern)
-    elif args.command == 'cwd':
-        result = {'cwd': worker.cwd()}
-    elif args.command == 'chdir':
-        worker.chdir(args.path)
-        result = {'cwd': worker.cwd()}
-    elif args.command == 'mkdir':
-        worker.mkdir(args.path)
-        result = {'created': args.path}
-    elif args.command == 'delete':
-        worker.delete(args.path)
-        result = {'deleted': args.path}
-    elif args.command == 'rename':
-        worker.rename(args.old, args.new)
-        result = {'old': args.old, 'new': args.new}
-    elif args.command == 'quit':
-        worker.quit()
-        result = {'quit': True}
-    elif args.command == 'put':
-        result = worker.put(args.local, args.guest)
-    elif args.command == 'get':
-        result = worker.get(args.guest, args.local)
-    elif args.command == 'collect-exec':
-        result = worker.collect_exec(args.output)
-    else:
-        result = worker.exec(args.program, args.tail, args.output)
+    try:
+        worker = DOSControl(RPC(args.rpc_port), args.timeout)
+        if args.command == 'ready':
+            result = {'ready': worker.ready()}
+        elif args.command == 'list':
+            result = worker.list(args.pattern)
+        elif args.command == 'cwd':
+            result = {'cwd': worker.cwd()}
+        elif args.command == 'chdir':
+            worker.chdir(args.path)
+            result = {'cwd': worker.cwd()}
+        elif args.command == 'mkdir':
+            worker.mkdir(args.path)
+            result = {'created': args.path}
+        elif args.command == 'delete':
+            worker.delete(args.path)
+            result = {'deleted': args.path}
+        elif args.command == 'rename':
+            worker.rename(args.old, args.new)
+            result = {'old': args.old, 'new': args.new}
+        elif args.command == 'quit':
+            worker.quit()
+            result = {'quit': True}
+        elif args.command == 'put':
+            result = worker.put(args.local, args.guest)
+        elif args.command == 'get':
+            result = worker.get(args.guest, args.local)
+        elif args.command == 'collect-exec':
+            result = worker.collect_exec(args.output)
+        else:
+            result = worker.exec(args.program, args.tail, args.output)
+    except (DOSCommandError, DOSClientInputError, TimeoutError,
+            RuntimeError, OSError, ValueError) as exc:
+        return _print_cli_failure(exc)
     print(json.dumps(result, indent=2))
     if args.command in ('exec', 'collect-exec'):
         # DOS termination type is independent of AL: never report abnormal
