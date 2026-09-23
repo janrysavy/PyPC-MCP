@@ -36,19 +36,34 @@ through DOS and checks the guest readback hash.
 Use `--host-root PATH` after importing a snapshot into a new host directory.
 The FAT16 mount caches its image at startup: editing a mounted host file alone
 does not change DOS's view during a run. The explicit sync uses DOS file calls
-and preserves the guest's filesystem state. Guest-created files are written
-back to the host directory by the mount.
-Guest delete and rename change DOS's directory, but the mount does not remove
-the old host path. Use the worker's `list` or `get` to inspect guest state;
-the scratch host tree is not an exact mirror after these operations.
+and preserves the guest's filesystem state.
+
+Guest-created, modified, renamed, and deleted files are synchronized into the
+host directory. A guest delete removes only a path already tracked by this
+mount whose host bytes still match the last guest-synchronized bytes. A later
+external host edit is retained and reported instead of being destroyed. An
+unknown host-only entry is never recursively deleted; it can deliberately keep
+a guest-deleted directory from being removed. In either conflict case, use the
+worker's `list` or `get` for the authoritative guest state and resolve the host
+copy explicitly. Version-2 disk snapshots preserve these deletion guards;
+version-1 snapshots remain readable and reconstruct them from the embedded FAT
+image.
 
 The client has `list`, `put`, `get`, `chdir`, `cwd`, `mkdir`, `rename`, `delete`,
-`exec`, and `quit` commands. `put` reads the entire host file before DOS
-truncates the target; `get` writes a host copy. `exec` takes a program path and
-an optional DOS command tail (include its leading space). `--output` names a
-guest file for redirected standard output and error, returned as byte count,
-SHA-256, base64, and CP437 text. The worker returns DOS `AH=4Dh` exit code and
-termination type. `COMMAND.COM /C COPY` was used in the compiler run; batch
+`exec`, `collect-exec`, and `quit` commands. `put` reads the entire host file
+before DOS truncates the target; `get` writes a host copy. `exec` takes a
+program path and an optional DOS command tail (include its leading space).
+`--output` names a guest file for redirected standard output and error,
+returned as byte count, SHA-256, base64, and CP437 text. The worker returns DOS
+`AH=4Dh` exit code and termination type. On the command line, a normally
+terminated child also becomes the host process exit code; abnormal termination
+with DOS code zero maps to host status 1. Expected DOS, input, timeout, and
+controller failures are emitted as structured JSON rather than tracebacks.
+
+A host timeout does not cancel the DOS child. After the original collector has
+stopped, use `collect-exec` to wait for and acknowledge that same pending EXEC
+without rerunning it. See [`RECOVERY.md`](RECOVERY.md) for the exact command and
+single-client limits. `COMMAND.COM /C COPY` was used in the compiler run; batch
 execution and other builtins have not been measured with this worker.
 For interactive programs, issue `exec` in one host thread and use keyboard and
 video RPC from another while it runs. Submit mailbox commands from only one

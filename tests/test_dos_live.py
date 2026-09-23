@@ -171,7 +171,7 @@ def live_dos(tmp_path_factory):
                 if any(t in lower for t in ('press any key', 'press the any key', 'strike any key',
                                              'enter new date', 'enter new time')):
                     if time.monotonic() - last_key[0] > 2:
-                        live.type('\n')
+                        live.type(' ')
                         last_key[0] = time.monotonic()
                 return False
             live.wait(at_prompt, 'DOS command prompt', seconds=180)
