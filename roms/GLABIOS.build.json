@@ -1,0 +1,34 @@
+{
+  "schema": 1,
+  "observed_at": "2026-09-23",
+  "source": {
+    "repository": "https://github.com/janrysavy/GLaBIOS.git",
+    "commit": "a590012aa824918937f34224945149dc0f76fdd3",
+    "base_tag": "v0.4.2",
+    "build_script": "firmware/glabios/src/PYPC.BAT",
+    "files": {
+      "firmware/glabios/src/GLABIOS.ASM": "f8b6266b9598d058eb92b4abe42ebf3c57171d36286c3501d033405a1ac0840e",
+      "firmware/glabios/src/PYPC.BAT": "22c32da10e1ae4eb3cfacee0af146ee5ea1c3a532dc9e6278947b8668e73619a",
+      "firmware/glabios/src/gla2rom/GLA2ROM.COM": "a59c215df1948d9d609f587a7e6f6ad22870f2377ed321abf1e690073bced654"
+    }
+  },
+  "toolchain": {
+    "runner": "DOSBox-X 2026.08.31 commit 0e5c2f9",
+    "assembler": {
+      "name": "Microsoft Macro Assembler 5.00",
+      "path_in_dostools": "Mount/MASM50/BIN/MASM.EXE",
+      "sha256": "085e0758fa776182da1281e0d75bac8a651e38a40191b5d865ba7a2b443e84b7"
+    },
+    "linker": {
+      "name": "Microsoft Overlay Linker 3.60",
+      "path_in_dostools": "Mount/MASM50/BIN/LINK.EXE",
+      "sha256": "58757a5e4ebab77ff6e484e8f641c2d5e0cbe0d833eaa869f4aabaa96ced4446"
+    }
+  },
+  "output": {
+    "path": "roms/GLABIOS.ROM",
+    "bytes": 8192,
+    "sha256": "10d07e6052ae7e5ecdceba84a5635ec1482488bee800fe1a2541bfedc95bea33",
+    "byte_sum_mod_256": 0
+  }
+}

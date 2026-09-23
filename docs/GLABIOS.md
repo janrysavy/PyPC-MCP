@@ -21,6 +21,9 @@ Copy the resulting `GLABIOS.ROM` to `roms\GLABIOS.ROM`. The committed ROM is
 8,192 bytes, has an 8-bit sum of zero, and has SHA-256
 `10d07e6052ae7e5ecdceba84a5635ec1482488bee800fe1a2541bfedc95bea33`.
 The ROM identifies itself as GLaBIOS `0.4.2`, dated `04/05/26`.
+[`roms/GLABIOS.build.json`](../roms/GLABIOS.build.json) retains the exact
+source pin and file hashes, MASM/LINK hashes, DOSBox-X version, and output
+identity from the verified build.
 
 ## VGA bridge
 
@@ -28,6 +31,8 @@ XT switch bits `00` tell the BIOS that an EGA or VGA option ROM is responsible
 for display initialization. When `--video vga` is selected, PyPC maps the
 committed `roms/PYPCVGA.ROM` at `C000:0000`. Its source and deterministic NASM
 builder are `roms/pypcvga.asm` and `roms/build_pypcvga.py`.
+`python roms/build_pypcvga.py --check` rebuilds it with NASM and compares the
+bytes with the committed ROM.
 
 The option ROM initializes mode 3 state, installs its INT 10h vector, and
 chains text calls to GLaBIOS's fixed `F000:F065` entry. PyPC handles its native

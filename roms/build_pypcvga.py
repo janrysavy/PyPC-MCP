@@ -32,22 +32,31 @@ def find_nasm(explicit: str) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('--nasm', default='')
+    parser.add_argument('--check', action='store_true',
+                        help='rebuild beside the committed ROM and compare it')
     args = parser.parse_args()
-    PRODUCT.unlink(missing_ok=True)
-    subprocess.run([find_nasm(args.nasm), '-f', 'bin', str(SOURCE),
-                    '-o', str(PRODUCT)],
-                   check=True)
-    data = bytearray(PRODUCT.read_bytes())
-    if len(data) != 512 or data[:3] != b'\x55\xaa\x01':
-        raise RuntimeError('unexpected VGA option ROM layout')
-    data[-1] = (-sum(data[:-1])) & 0xff
-    PRODUCT.write_bytes(data)
-    if sum(data) & 0xff:
-        raise RuntimeError('VGA option ROM checksum failed')
-    digest = hashlib.sha256(data).hexdigest()
-    if digest != EXPECTED_SHA256:
-        raise RuntimeError(f'unexpected VGA option ROM SHA-256: {digest}')
-    print(f'{PRODUCT.name} bytes={len(data)} sha256={digest}')
+    target = HERE / '.PYPCVGA.ROM.check' if args.check else PRODUCT
+    target.unlink(missing_ok=True)
+    try:
+        subprocess.run([find_nasm(args.nasm), '-f', 'bin', str(SOURCE),
+                        '-o', str(target)], check=True)
+        data = bytearray(target.read_bytes())
+        if len(data) != 512 or data[:3] != b'\x55\xaa\x01':
+            raise RuntimeError('unexpected VGA option ROM layout')
+        data[-1] = (-sum(data[:-1])) & 0xff
+        target.write_bytes(data)
+        if sum(data) & 0xff:
+            raise RuntimeError('VGA option ROM checksum failed')
+        digest = hashlib.sha256(data).hexdigest()
+        if digest != EXPECTED_SHA256:
+            raise RuntimeError(f'unexpected VGA option ROM SHA-256: {digest}')
+        if args.check and target.read_bytes() != PRODUCT.read_bytes():
+            raise RuntimeError('rebuilt VGA option ROM differs from committed ROM')
+        action = 'verified' if args.check else 'built'
+        print(f'{PRODUCT.name} {action}: bytes={len(data)} sha256={digest}')
+    finally:
+        if args.check:
+            target.unlink(missing_ok=True)
     return 0
 
 

@@ -18,7 +18,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python }}
+      - run: sudo apt-get update -qq && sudo apt-get install -y nasm
       - run: python -m pip install pytest lz4==4.4.5
+      - run: python roms/build_pypcvga.py --check
       - run: python -m pytest -q
       - run: python benchmarks/benchmark_flags.py --ticks 100000 --repeats 3 > flags.json
       - uses: actions/upload-artifact@v4
