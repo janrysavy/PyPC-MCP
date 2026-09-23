@@ -240,6 +240,10 @@ class VGA(cga.CGA):
         """Service the small standard INT 10h subset needed for VGA modes."""
         if state.GetAH() == 0x00:
             return self.BiosSetMode(state.GetAL())
+        if state.GetAH() == 0x1a and state.GetAL() == 0x00:
+            state.SetAX((state.GetAX() & 0xff00) | 0x1a)
+            state.SetBX((state.GetBX() & 0xff00) | 0x08)
+            return True
         if state.GetAH() == 0x0f:
             state.SetAL(self._graphics_mode & 0xff)
             state.SetAH(40 if self._graphics_mode == 0x13 else 80)
