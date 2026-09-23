@@ -6,6 +6,9 @@
 optional mapped device. The host uses existing debugger RPC to pause, write
 the request, continue, read the result, and acknowledge it. No COM port is
 consumed. The mapped window is included in version-2 machine snapshots.
+For the pinned Pyro II setup, follow its
+[DOS-control guide](https://github.com/janrysavy/pyro221_next/blob/master/docs/PYPC_DOS_CONTROL.md)
+for startup polls, interactive steering, host edits, and emulator cleanup.
 
 Build on Windows with `nasm -f bin -o DOSCTRL.COM guest/dos_control.asm`.
 Place the COM file on a DOS-mounted drive, select that drive, and run
@@ -69,3 +72,6 @@ replay in the Pyro II repository verified text events only; font and port
 event delivery has not been checked in a live guest run. Graphics VRAM is not
 yet journaled. A no-resident-worker shell path is still needed for programs
 that require the worker's conventional memory.
+
+`quit` returns to the DOS prompt; it does not terminate PyPC or free the
+listener ports. Stop the emulator process separately after the worker exits.
