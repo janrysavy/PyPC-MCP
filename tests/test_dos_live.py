@@ -107,6 +107,7 @@ class LiveDOS:
             try:
                 if condition():
                     return
+                last_error = None
             except (OSError, RuntimeError) as error:
                 last_error = error
             time.sleep(0.2)
@@ -167,7 +168,7 @@ def live_dos(tmp_path_factory):
                 if re.search(r'(?m)^[A-Z]:(?:\\[^>\n]*)?>\s*$', screen):
                     return True
                 lower = screen.lower()
-                if any(t in lower for t in ('press any key', 'strike any key',
+                if any(t in lower for t in ('press any key', 'press the any key', 'strike any key',
                                              'enter new date', 'enter new time')):
                     if time.monotonic() - last_key[0] > 2:
                         live.type('\n')
