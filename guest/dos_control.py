@@ -48,6 +48,30 @@ class DOSCommandError(RuntimeError):
         }
 
 
+class DOSOutputError(RuntimeError):
+    """Capture retrieval failed after EXEC completed and was acknowledged.
+
+    result retains the child's exit_code, termination_type and output_path.
+    The chained exception describes the separate file/transport failure.
+    Do not resubmit or recollect EXEC: that child has already completed.
+    """
+
+    def __init__(self, result: dict):
+        self.result = dict(result)
+        super().__init__(
+            f'DOS child completed, but captured output could not be retrieved '
+            f'from {result["output_path"]}; do not rerun or recollect EXEC')
+
+    def as_error(self) -> dict:
+        cause = self.__cause__
+        if isinstance(cause, DOSCommandError):
+            detail = cause.as_error()
+        else:
+            detail = {'kind': 'timeout' if isinstance(cause, TimeoutError) else 'controller',
+                      'message': str(cause)}
+        return {'kind': 'output_capture', 'message': str(self), 'cause': detail}
+
+
 class RPC:
     def __init__(self, port: int):
         self.port = port
@@ -278,8 +302,14 @@ class DOSControl:
             raise RuntimeError('DOS worker returned invalid child status')
         response = {'exit_code': result[0], 'termination_type': result[1]}
         if output:
-            data = self.read_file(output)
-            response.update(output_path=output, output_bytes=len(data),
+            response['output_path'] = output
+            try:
+                data = self.read_file(output)
+            except (RuntimeError, OSError, ValueError) as exc:
+                # EXEC has already been acknowledged. Preserve its status even
+                # when the separate capture read fails or remains pending.
+                raise DOSOutputError(response) from exc
+            response.update(output_bytes=len(data),
                             output_sha256=hashlib.sha256(data).hexdigest(),
                             output_base64=base64.b64encode(data).decode('ascii'),
                             output_text=data.decode('cp437', errors='replace'))
@@ -287,7 +317,12 @@ class DOSControl:
 
 
 def _print_cli_failure(exc: Exception) -> int:
-    if isinstance(exc, DOSCommandError):
+    result = {}
+    if isinstance(exc, DOSOutputError):
+        result = exc.result
+        error = exc.as_error()
+        exit_code = 1
+    elif isinstance(exc, DOSCommandError):
         error = exc.as_error()
         exit_code = 1
     elif isinstance(exc, DOSClientInputError):
@@ -299,7 +334,7 @@ def _print_cli_failure(exc: Exception) -> int:
     else:
         error = {'kind': 'controller', 'message': str(exc)}
         exit_code = 1
-    print(json.dumps({'error': error}, indent=2))
+    print(json.dumps({**result, 'error': error}, indent=2))
     return exit_code
 
 
