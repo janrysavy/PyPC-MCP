@@ -25,7 +25,10 @@ jobs:
       - name: Boot DOS and test real command execution
         env:
           PYPC_LIVE_DOS: '1'
-        run: python -m pytest -q -s tests/test_dos_live.py --basetemp live-results
+        run: >-
+          python -m pytest -q -s
+          tests/test_dos_live.py tests/test_dos_live_mirror.py
+          --basetemp live-results
       - name: Retain reports only, never disk or tool binaries
         if: always()
         uses: actions/upload-artifact@v4
