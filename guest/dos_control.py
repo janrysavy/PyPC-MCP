@@ -2,6 +2,9 @@
 
 This is an experimental local client. Start DOSCTRL.COM from the DOS prompt,
 then use this module while PyPC's debugger RPC is reachable on loopback.
+The exec CLI prints the original DOS status as JSON and exits with the child's
+code. Abnormal termination with a zero DOS code maps to host status 1; inspect
+termination_type in the JSON to distinguish it from an ordinary child failure.
 """
 from __future__ import annotations
 
@@ -208,7 +211,7 @@ class DOSControl:
         return response
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--rpc-port', type=int, default=2301)
     parser.add_argument('--timeout', type=float, default=120)
@@ -267,7 +270,12 @@ def main():
     else:
         result = worker.exec(args.program, args.tail, args.output)
     print(json.dumps(result, indent=2))
+    if args.command == 'exec':
+        # DOS termination type is independent of AL: never report abnormal
+        # termination as a successful host build just because AL is zero.
+        return result['exit_code'] or int(result['termination_type'] != 0)
+    return 0
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())
