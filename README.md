@@ -25,13 +25,14 @@
 > python3 run_pypc.py --host-dir /path/to/shared-directory
 > ```
 >
-> The mount accepts DOS 8.3 names. Guest-created and modified files and
-> directories are synchronized into the selected directory and its
-> subdirectories. Symlinks and path escapes are rejected. Guest deletions and
-> renames change DOS's directory, but the host sync can leave old paths behind;
-> inspect the guest through the worker when exact state matters. The FAT image
-> is cached at startup. To publish a host edit while DOS remains running, use
-> the DOS control worker described below.
+> The mount accepts DOS 8.3 names. Guest-created, modified, renamed, and
+> deleted files and directories are synchronized into the selected directory.
+> Symlinks and path escapes are rejected. A guest delete removes only a tracked
+> host file whose bytes still match the last guest-synchronized version; an
+> external host edit is retained and reported instead. Unknown host-only
+> content is never recursively deleted. The FAT image is cached at startup. To
+> publish a host edit while DOS remains running, use the DOS control worker
+> described below.
 >
 > In DOS, select the drive with `D:` and run a program, for example:
 >
@@ -84,17 +85,25 @@ python tools/pypc/src/guest/dos_control.py --rpc-port 12311 exec 'D:\TP6\TPC.EXE
 ```
 
 `sync` transfers the edited bytes through DOS and verifies guest readback.
-Guest writes already flow to the scratch host directory. For a snapshot
-restored into a new disk directory, pass `--host-root PATH` to `sync`.
+Guest writes, renames, and deletes flow to the scratch host directory. A
+conflicting external host edit is deliberately retained rather than destroyed;
+in that case the worker's `list` or `get` is the authoritative guest view. For
+a snapshot restored into a new disk directory, pass `--host-root PATH` to
+`sync`. Version-2 disk snapshots preserve the deletion conflict guards, while
+version-1 snapshots remain readable.
+
 The client also offers `list`, `put`, `get`, `chdir`, `cwd`, `mkdir`, `rename`,
-`delete`, and `quit`. Rename and delete affect the guest FAT view; the host
-mount may retain the old paths. Use `list` or `get` to inspect guest state.
-`exec` returns the DOS exit code and, with `--output`,
-the exact redirected standard-output/error bytes. Use keyboard/video RPC for
-interactive children such as `DEBUG.EXE`; the foreground worker cannot serve
-other file requests until a child exits. For programs that write directly to
-the screen, `video.history` records overwritten text VRAM and reports loss if
-its ring fills. See [the guest worker guide](guest/README.md) and
+`delete`, `collect-exec`, and `quit`. `exec` returns the DOS exit code and,
+with `--output`, the exact redirected standard-output/error bytes. A normal DOS
+child exit becomes the command-line client's host process exit status;
+expected DOS, validation, timeout, and controller failures are returned as
+structured JSON. A timeout does not cancel the child: use `collect-exec` from a
+new client to retrieve the pending result without rerunning it. Use
+keyboard/video RPC for interactive children such as `DEBUG.EXE`; the foreground
+worker cannot serve other file requests until a child exits. For programs that
+write directly to the screen, `video.history` records overwritten text VRAM and
+reports loss if its ring fills. See [the guest worker guide](guest/README.md),
+[timeout recovery](guest/RECOVERY.md), and
 [the JSON-RPC contract](JSON_RPC_API.md).
 
 `quit` exits only `DOSCTRL.COM`; stop the emulator PID returned by `launch`
