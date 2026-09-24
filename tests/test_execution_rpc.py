@@ -81,6 +81,27 @@ class HeadlessMachine:
 
 
 class ExecutionRPCTests(unittest.TestCase):
+    def test_plain_continue_batches_sixty_four_unobserved_instructions(self):
+        machine = HeadlessMachine()
+        machine.load(bytes.fromhex('eb fe'))
+        before_revision = machine.control['revision']
+        before_clock = machine.state.GetClock()
+        machine.rpc('execution.continue')
+        machine.pump()
+        self.assertEqual(machine.control['revision'] - before_revision, 64)
+        self.assertGreater(machine.state.GetClock(), before_clock)
+        self.assertEqual(machine.state.GetIP(), 0x100)
+
+    def test_step_stays_on_exactly_one_instruction_boundary(self):
+        machine = HeadlessMachine()
+        machine.load(b'\x90\x90')
+        before_revision = machine.control['revision']
+        machine.rpc('execution.step')
+        machine.pump()
+        self.assertEqual(machine.control['revision'] - before_revision, 1)
+        self.assertEqual(machine.state.GetIP(), 0x101)
+        self.assertTrue(machine.control['paused'])
+
     def test_continue_interrupt_with_other_execution_breakpoint(self):
         machine = HeadlessMachine()
         machine.load(bytes.fromhex('cd 21'))

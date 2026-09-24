@@ -894,6 +894,37 @@ try:
         if control['paused']:
             time.sleep(0.001)
             continue
+        # With no instruction-boundary observer active, keep a small batch in
+        # one Python loop. Devices still tick after every instruction inside
+        # CPU.Tick. A newly arrived RPC waits for at most 64 instructions;
+        # enabling any exact debugger feature immediately selects the path
+        # below on the next outer iteration.
+        if (not control['breakpoints_active']
+                and not control['instruction_hooks_active']
+                and not control['memory_watchpoints_active']
+                and not control['interrupt_breakpoints_active']
+                and not control['step']
+                and control['run_until_deadline_clock'] is None
+                and control['skip_breakpoint_id'] is None):
+            executed = 0
+            rc = 0
+            tick = p.Tick
+            for _normal_tick in range(64):
+                rc = tick()
+                if rc == -1:
+                    break
+                executed += 1
+            control['revision'] += executed
+            if rc == -1:
+                break
+            cur_cycles = state.GetClock()
+            c_diff = cur_cycles - p_cycles
+            if c_diff >= 4700000:
+                p_cycles = cur_cycles
+                now = time.time()
+                print(f'{100 * c_diff / (now - p_time) / 4700000:.2f}%')
+                p_time = now
+            continue
         if control['breakpoints_active']:
             breakpoint = breakpoints.check(
                 state.GetCS(), state.GetIP(), rpc_flat_registers,

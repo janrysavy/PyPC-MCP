@@ -135,6 +135,10 @@ The required firmware is committed under `roms`. It requires Python 3.12 or late
 Stock CPython and its standard library are the required, offline-capable
 runtime. PyPy is an optional accelerator only: no normal boot, debugger, RPC,
 VNC, snapshot, or DOS-control path may require it or a downloaded package.
+Normal execution batches at most 64 instructions inside one Python loop when
+no breakpoint, trace, watchpoint, step, deadline, or resume exemption is
+active. Devices still tick per instruction, and debugger activation selects
+the exact instruction-boundary path at the next batch boundary.
 When it is running, you can also connect a VNC client to it: you see it then use the original font and see nice graphics.
 
 

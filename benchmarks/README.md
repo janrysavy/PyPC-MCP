@@ -135,3 +135,11 @@ The post-change CPython 3.14 comparison is
 path, production throughput improved 1.20x for arithmetic, 1.22x for
 logic/memory, and 1.32x for branch workloads with identical sampled final
 state.
+
+`benchmark_frontend_quantum.py` compares the inactive per-instruction frontend
+checks with the production 64-instruction normal-execution batch. It uses the
+real 8088, PIT, keyboard and VGA device path and refuses any final-state or
+revision difference. Exact debugger modes never enter the batch.
+The CPython 3.14 result in
+`results/2026-09-24-frontend-quantum-py314.json` measured 1.05x, 1.06x and
+1.09x throughput across the arithmetic, logic/memory and branch workloads.

@@ -1,0 +1,253 @@
+{
+  "platform": "Windows-11-10.0.26200-SP0",
+  "python": "3.14.7 (tags/v3.14.7:823f032, Aug  5 2026, 10:51:32) [MSC v.1944 64 bit (AMD64)]",
+  "quantum_instructions": 64,
+  "repeats": 7,
+  "scope": "Synthetic normal-execution frontend with real 8088, PIT, keyboard and VGA ticks. Exact debugger modes are excluded.",
+  "ticks": 200000,
+  "workloads": {
+    "arithmetic": {
+      "final_state_sha256": "faba0e0230532428e2fbc769b87c7865268c6f0d0243017e725f115854f6c2cc",
+      "identical_final_state": true,
+      "median_seconds": {
+        "legacy": 0.5902594000217505,
+        "quantum": 0.5613073999993503
+      },
+      "samples": [
+        {
+          "mode": "legacy",
+          "seconds": 0.5870791999623179,
+          "ticks_per_second": 340669.5383056275
+        },
+        {
+          "mode": "quantum",
+          "seconds": 0.5493930000229739,
+          "ticks_per_second": 364038.1293384456
+        },
+        {
+          "mode": "quantum",
+          "seconds": 0.5540170000167564,
+          "ticks_per_second": 360999.75270425086
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.5902594000217505,
+          "ticks_per_second": 338834.07869934844
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.5787744999979623,
+          "ticks_per_second": 345557.72585126705
+        },
+        {
+          "mode": "quantum",
+          "seconds": 0.5638969999854453,
+          "ticks_per_second": 354674.70124005305
+        },
+        {
+          "mode": "quantum",
+          "seconds": 0.5613073999993503,
+          "ticks_per_second": 356310.99821636325
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.5996702999691479,
+          "ticks_per_second": 333516.60072257987
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.5890344000072218,
+          "ticks_per_second": 339538.7434036924
+        },
+        {
+          "mode": "quantum",
+          "seconds": 0.5661119999713264,
+          "ticks_per_second": 353286.98209917825
+        },
+        {
+          "mode": "quantum",
+          "seconds": 0.558078900037799,
+          "ticks_per_second": 358372.26597610814
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.5925299000227824,
+          "ticks_per_second": 337535.70915545383
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.5937486999901012,
+          "ticks_per_second": 336842.8427773136
+        },
+        {
+          "mode": "quantum",
+          "seconds": 0.5724508000421338,
+          "ticks_per_second": 349375.00303131645
+        }
+      ],
+      "speedup": 1.0515795801417078
+    },
+    "branch": {
+      "final_state_sha256": "e557c87c22bfc1e65717c29d5820b8f41675bd3f66f41889d0f5acfd48182f7f",
+      "identical_final_state": true,
+      "median_seconds": {
+        "legacy": 0.37674779997905716,
+        "quantum": 0.34509940003044903
+      },
+      "samples": [
+        {
+          "mode": "legacy",
+          "seconds": 0.380774500023108,
+          "ticks_per_second": 525245.2566751782
+        },
+        {
+          "mode": "quantum",
+          "seconds": 0.3431755999918096,
+          "ticks_per_second": 582792.016695748
+        },
+        {
+          "mode": "quantum",
+          "seconds": 0.3483095000265166,
+          "ticks_per_second": 574201.966885124
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.3778827000060119,
+          "ticks_per_second": 529264.7691911224
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.37439770001219586,
+          "ticks_per_second": 534191.3157946352
+        },
+        {
+          "mode": "quantum",
+          "seconds": 0.3404519999749027,
+          "ticks_per_second": 587454.3254695038
+        },
+        {
+          "mode": "quantum",
+          "seconds": 0.34509940003044903,
+          "ticks_per_second": 579543.1692502319
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.37061000004177913,
+          "ticks_per_second": 539650.8458418658
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.3741157000185922,
+          "ticks_per_second": 534593.977184226
+        },
+        {
+          "mode": "quantum",
+          "seconds": 0.3539253000053577,
+          "ticks_per_second": 565090.9951816737
+        },
+        {
+          "mode": "quantum",
+          "seconds": 0.3458934999653138,
+          "ticks_per_second": 578212.6580003845
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.3800351999816485,
+          "ticks_per_second": 526267.0405521851
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.37674779997905716,
+          "ticks_per_second": 530859.1052452534
+        },
+        {
+          "mode": "quantum",
+          "seconds": 0.3437471999786794,
+          "ticks_per_second": 581822.9210664256
+        }
+      ],
+      "speedup": 1.0917080700395763
+    },
+    "logic_memory": {
+      "final_state_sha256": "1d9a5037eac55616ee34560bc42d3613fa74a1b5d47d3cba0658dd7ac90769de",
+      "identical_final_state": true,
+      "median_seconds": {
+        "legacy": 0.5432098999735899,
+        "quantum": 0.5133412999566644
+      },
+      "samples": [
+        {
+          "mode": "legacy",
+          "seconds": 0.5443946999730542,
+          "ticks_per_second": 367380.50537578587
+        },
+        {
+          "mode": "quantum",
+          "seconds": 0.5133412999566644,
+          "ticks_per_second": 389604.3431862656
+        },
+        {
+          "mode": "quantum",
+          "seconds": 0.520986300020013,
+          "ticks_per_second": 383887.253834347
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.5406948000309058,
+          "ticks_per_second": 369894.4395037055
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.5471561000449583,
+          "ticks_per_second": 365526.40093670995
+        },
+        {
+          "mode": "quantum",
+          "seconds": 0.5302643000031821,
+          "ticks_per_second": 377170.4035116069
+        },
+        {
+          "mode": "quantum",
+          "seconds": 0.5106508000171743,
+          "ticks_per_second": 391657.07758271124
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.5502249999553896,
+          "ticks_per_second": 363487.66416686866
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.5432098999735899,
+          "ticks_per_second": 368181.802300959
+        },
+        {
+          "mode": "quantum",
+          "seconds": 0.5128778999787755,
+          "ticks_per_second": 389956.36194945546
+        },
+        {
+          "mode": "quantum",
+          "seconds": 0.5080765999737196,
+          "ticks_per_second": 393641.4312533682
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.5408695000223815,
+          "ticks_per_second": 369774.9641858597
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.5431735999882221,
+          "ticks_per_second": 368206.4076831729
+        },
+        {
+          "mode": "quantum",
+          "seconds": 0.5140160000300966,
+          "ticks_per_second": 389092.9465002833
+        }
+      ],
+      "speedup": 1.0581846814574376
+    }
+  }
+}
