@@ -147,12 +147,18 @@ When it is running, you can also connect a VNC client to it: you see it then use
 
 Note that this is a manual translation of https://github.com/folkertvanheusden/Dotxt
 
-If you want a quicker version, run it from 'pypy'. For that you may need to invoke this first on the source code of PyPC:
+For a quicker version, use a current PyPy 3.12 build. PyPy 3.12 supplies
+`typing.override`, so the destructive source edits required by older PyPy
+versions are no longer needed:
 
-```shell
-sed -i 's/import override,/import /g' *py
-sed -i 's/@override//g' *py
+```powershell
+pypy3 run_pypc.py
 ```
+
+The repeatable CPython/PyPy and hot-path measurements are described in
+`benchmarks/README.md`. Keep CPython supported and tested; PyPy has a warm-up
+period and must be validated on complete DOS workloads rather than selected
+CPU loops alone.
 
 Folkert van Heusden
 

@@ -1,0 +1,57 @@
+{
+  "benchmark": "production CPU/debugger loop; inc ax / jmp; one address miss",
+  "python": "3.14.7 (tags/v3.14.7:823f032, Aug  5 2026, 10:51:32) [MSC v.1944 64 bit (AMD64)]",
+  "platform": "Windows-11-10.0.26200-SP0",
+  "ticks_per_sample": 200000,
+  "repeats": 7,
+  "wall_seconds": {
+    "eager": [
+      0.8242552000447176,
+      0.7958274999982677,
+      0.7855140000465326,
+      0.7733919000020251,
+      0.7875229000346735,
+      0.7766814000206068,
+      0.7855354999774136
+    ],
+    "lazy": [
+      0.428873399971053,
+      0.43278339999960735,
+      0.4258794999914244,
+      0.42203220003284514,
+      0.4217752999975346,
+      0.41977269999915734,
+      0.4277212000451982
+    ]
+  },
+  "median_seconds": {
+    "eager": 0.7855354999774136,
+    "lazy": 0.4258794999914244
+  },
+  "speedup": 1.8445017898096323,
+  "identical_final_registers_and_clock": {
+    "general": {
+      "ax": 34464,
+      "bx": 0,
+      "cx": 0,
+      "dx": 0,
+      "sp": 36864,
+      "bp": 0,
+      "si": 0,
+      "di": 0
+    },
+    "segments": {
+      "cs": 4096,
+      "ds": 8192,
+      "es": 12288,
+      "ss": 8192
+    },
+    "ip": 256,
+    "flags": 150,
+    "flags_text": "---s-ap-",
+    "clock": 1800000,
+    "in_hlt": false,
+    "state_revision": 200000
+  },
+  "scope": "synthetic; not end-to-end DOS application execution"
+}

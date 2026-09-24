@@ -1,0 +1,544 @@
+{
+  "base_commit": "5144476fe37815ec4b28007b98c823d2b749f7b8",
+  "cpu_affinity": null,
+  "platform": "Windows-11-10.0.26200-SP0",
+  "python": "3.12.14 (e778e9989a67, Sep 18 2026, 17:25:41)\n[PyPy 8.0.0 with MSC v.1941 64 bit (AMD64)]",
+  "repeats": 7,
+  "ticks": 200000,
+  "workloads": {
+    "arithmetic": {
+      "final": {
+        "cpu": {
+          "_ah": 193,
+          "_al": 46,
+          "_bh": 7,
+          "_bl": 13,
+          "_bp": 0,
+          "_ch": 0,
+          "_cl": 0,
+          "_clock": 1033329,
+          "_crash_counter": 0,
+          "_cs": 4096,
+          "_dh": 125,
+          "_di": 0,
+          "_dl": 203,
+          "_ds": 8192,
+          "_es": 0,
+          "_flags": 134,
+          "_in_hlt": false,
+          "_inhibit_interrupts": false,
+          "_ip": 260,
+          "_rep": false,
+          "_rep_addr": 0,
+          "_rep_do_nothing": false,
+          "_rep_mode": "NotSet",
+          "_rep_opcode": 0,
+          "_segment_override": 0,
+          "_segment_override_set": false,
+          "_si": 0,
+          "_sp": 65280,
+          "_ss": 12288
+        },
+        "keyboard_pending": [],
+        "pic": {
+          "_auto_eoi": false,
+          "_has_slave": false,
+          "_icw1": 0,
+          "_icw2": 0,
+          "_icw3": 0,
+          "_icw4": 0,
+          "_ii_icw2": false,
+          "_ii_icw3": false,
+          "_ii_icw4": false,
+          "_ii_icw4_req": false,
+          "_imr": 255,
+          "_in_init": false,
+          "_int_in_service": -1,
+          "_int_offset": 8,
+          "_irq_request_level": 7,
+          "_irr": 3,
+          "_isr": 0,
+          "_ocw2": 0,
+          "_ocw3": 0,
+          "_read_irr": true,
+          "_trace_address": null,
+          "_trace_clock": 0,
+          "_trace_hook": null
+        },
+        "pit": [
+          {
+            "counter_cur": 4,
+            "counter_ini": 32,
+            "is_bcd": false,
+            "is_pending": true,
+            "is_running": true,
+            "latch_n": 2,
+            "latch_n_cur": 2,
+            "latch_type": 3,
+            "latched_count": null,
+            "mode": 2
+          },
+          {},
+          {}
+        ],
+        "pit_clock": 1,
+        "ram_sha256": "2add8a0eb28be01a9ddaa88d3e7efd97937ef7b6b8c976ce9dfe7421c260ee8e",
+        "video": [
+          1033329,
+          13,
+          true,
+          false,
+          false
+        ]
+      },
+      "identical_final_state": true,
+      "median_seconds": {
+        "fast": 0.02963370003271848,
+        "legacy": 0.04076240002177656
+      },
+      "samples": [
+        {
+          "mode": "legacy",
+          "seconds": 0.16492619999917224,
+          "ticks": 200000,
+          "ticks_per_second": 1212663.6034844907
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.12072279996937141,
+          "ticks": 200000,
+          "ticks_per_second": 1656687.8837364775
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.038156299968250096,
+          "ticks": 200000,
+          "ticks_per_second": 5241598.377369406
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.04076240002177656,
+          "ticks": 200000,
+          "ticks_per_second": 4906482.441984616
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.044130099995527416,
+          "ticks": 200000,
+          "ticks_per_second": 4532054.0859927805
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.03209039999637753,
+          "ticks": 200000,
+          "ticks_per_second": 6232393.489098817
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.02951490000123158,
+          "ticks": 200000,
+          "ticks_per_second": 6776238.441995552
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.032634700008202344,
+          "ticks": 200000,
+          "ticks_per_second": 6128446.1003083335
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.035507599997799844,
+          "ticks": 200000,
+          "ticks_per_second": 5632596.965505768
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.02963370003271848,
+          "ticks": 200000,
+          "ticks_per_second": 6749072.838666134
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.026575300027616322,
+          "ticks": 200000,
+          "ticks_per_second": 7525785.213794971
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.030106900027021766,
+          "ticks": 200000,
+          "ticks_per_second": 6642995.453550333
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.04655769997043535,
+          "ticks": 200000,
+          "ticks_per_second": 4295744.852666738
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.0275948999915272,
+          "ticks": 200000,
+          "ticks_per_second": 7247716.065700852
+        }
+      ],
+      "speedup": 1.3755420341290798
+    },
+    "branch": {
+      "final": {
+        "cpu": {
+          "_ah": 120,
+          "_al": 50,
+          "_bh": 0,
+          "_bl": 0,
+          "_bp": 0,
+          "_ch": 0,
+          "_cl": 0,
+          "_clock": 1169220,
+          "_crash_counter": 0,
+          "_cs": 4096,
+          "_dh": 0,
+          "_di": 0,
+          "_dl": 0,
+          "_ds": 8192,
+          "_es": 0,
+          "_flags": 2,
+          "_in_hlt": false,
+          "_inhibit_interrupts": false,
+          "_ip": 257,
+          "_rep": false,
+          "_rep_addr": 0,
+          "_rep_do_nothing": false,
+          "_rep_mode": "NotSet",
+          "_rep_opcode": 0,
+          "_segment_override": 0,
+          "_segment_override_set": false,
+          "_si": 0,
+          "_sp": 65280,
+          "_ss": 12288
+        },
+        "keyboard_pending": [],
+        "pic": {
+          "_auto_eoi": false,
+          "_has_slave": false,
+          "_icw1": 0,
+          "_icw2": 0,
+          "_icw3": 0,
+          "_icw4": 0,
+          "_ii_icw2": false,
+          "_ii_icw3": false,
+          "_ii_icw4": false,
+          "_ii_icw4_req": false,
+          "_imr": 255,
+          "_in_init": false,
+          "_int_in_service": -1,
+          "_int_offset": 8,
+          "_irq_request_level": 7,
+          "_irr": 3,
+          "_isr": 0,
+          "_ocw2": 0,
+          "_ocw3": 0,
+          "_read_irr": true,
+          "_trace_address": null,
+          "_trace_clock": 0,
+          "_trace_hook": null
+        },
+        "pit": [
+          {
+            "counter_cur": 15,
+            "counter_ini": 32,
+            "is_bcd": false,
+            "is_pending": true,
+            "is_running": true,
+            "latch_n": 2,
+            "latch_n_cur": 2,
+            "latch_type": 3,
+            "latched_count": null,
+            "mode": 2
+          },
+          {},
+          {}
+        ],
+        "pit_clock": 0,
+        "ram_sha256": "92ae978c8d2c9deec41cad8a9deb5cde9579adb5fdd42b9ee12a6379e9a6a546",
+        "video": [
+          1169220,
+          14,
+          false,
+          false,
+          false
+        ]
+      },
+      "identical_final_state": true,
+      "median_seconds": {
+        "fast": 0.023522800009232014,
+        "legacy": 0.025192599976435304
+      },
+      "samples": [
+        {
+          "mode": "legacy",
+          "seconds": 0.054078000015579164,
+          "ticks": 200000,
+          "ticks_per_second": 3698361.624734321
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.04668400000082329,
+          "ticks": 200000,
+          "ticks_per_second": 4284123.039938157
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.03397139994194731,
+          "ticks": 200000,
+          "ticks_per_second": 5887305.213849706
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.034582699998281896,
+          "ticks": 200000,
+          "ticks_per_second": 5783238.44031658
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.02697389997774735,
+          "ticks": 200000,
+          "ticks_per_second": 7414574.835859625
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.022943300020415336,
+          "ticks": 200000,
+          "ticks_per_second": 8717141.815782238
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.024222100037150085,
+          "ticks": 200000,
+          "ticks_per_second": 8256922.384650986
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.025192599976435304,
+          "ticks": 200000,
+          "ticks_per_second": 7938839.190360516
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.0243874000152573,
+          "ticks": 200000,
+          "ticks_per_second": 8200956.226365892
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.023071699950378388,
+          "ticks": 200000,
+          "ticks_per_second": 8668628.684932247
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.023522800009232014,
+          "ticks": 200000,
+          "ticks_per_second": 8502389.168020211
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.023025900009088218,
+          "ticks": 200000,
+          "ticks_per_second": 8685871.124301804
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.02289199997903779,
+          "ticks": 200000,
+          "ticks_per_second": 8736676.57623362
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.022483000007923692,
+          "ticks": 200000,
+          "ticks_per_second": 8895610.013321795
+        }
+      ],
+      "speedup": 1.0709864457695488
+    },
+    "logic_memory": {
+      "final": {
+        "cpu": {
+          "_ah": 0,
+          "_al": 0,
+          "_bh": 0,
+          "_bl": 0,
+          "_bp": 0,
+          "_ch": 0,
+          "_cl": 0,
+          "_clock": 1366670,
+          "_crash_counter": 0,
+          "_cs": 4096,
+          "_dh": 90,
+          "_di": 0,
+          "_dl": 165,
+          "_ds": 8192,
+          "_es": 0,
+          "_flags": 70,
+          "_in_hlt": false,
+          "_inhibit_interrupts": false,
+          "_ip": 262,
+          "_rep": false,
+          "_rep_addr": 0,
+          "_rep_do_nothing": false,
+          "_rep_mode": "NotSet",
+          "_rep_opcode": 0,
+          "_segment_override": 0,
+          "_segment_override_set": false,
+          "_si": 0,
+          "_sp": 65280,
+          "_ss": 12288
+        },
+        "keyboard_pending": [],
+        "pic": {
+          "_auto_eoi": false,
+          "_has_slave": false,
+          "_icw1": 0,
+          "_icw2": 0,
+          "_icw3": 0,
+          "_icw4": 0,
+          "_ii_icw2": false,
+          "_ii_icw3": false,
+          "_ii_icw4": false,
+          "_ii_icw4_req": false,
+          "_imr": 255,
+          "_in_init": false,
+          "_int_in_service": -1,
+          "_int_offset": 8,
+          "_irq_request_level": 7,
+          "_irr": 3,
+          "_isr": 0,
+          "_ocw2": 0,
+          "_ocw3": 0,
+          "_read_irr": true,
+          "_trace_address": null,
+          "_trace_clock": 0,
+          "_trace_hook": null
+        },
+        "pit": [
+          {
+            "counter_cur": 29,
+            "counter_ini": 32,
+            "is_bcd": false,
+            "is_pending": true,
+            "is_running": true,
+            "latch_n": 2,
+            "latch_n_cur": 2,
+            "latch_type": 3,
+            "latched_count": null,
+            "mode": 2
+          },
+          {},
+          {}
+        ],
+        "pit_clock": 2,
+        "ram_sha256": "df01a95773fb14c68fc208db24935b643d5d7265261182f2e244aacb7185b5e8",
+        "video": [
+          1366670,
+          17,
+          false,
+          false,
+          false
+        ]
+      },
+      "identical_final_state": true,
+      "median_seconds": {
+        "fast": 0.028430900012608618,
+        "legacy": 0.02781270002014935
+      },
+      "samples": [
+        {
+          "mode": "legacy",
+          "seconds": 0.04285209998488426,
+          "ticks": 200000,
+          "ticks_per_second": 4667215.844043779
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.04317129997070879,
+          "ticks": 200000,
+          "ticks_per_second": 4632707.3804981
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.03257350000785664,
+          "ticks": 200000,
+          "ticks_per_second": 6139960.395774497
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.03165160003118217,
+          "ticks": 200000,
+          "ticks_per_second": 6318795.884030072
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.02781270002014935,
+          "ticks": 200000,
+          "ticks_per_second": 7190959.520474706
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.02644829999189824,
+          "ticks": 200000,
+          "ticks_per_second": 7561922.6967806965
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.027028100041206926,
+          "ticks": 200000,
+          "ticks_per_second": 7399706.220381042
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.02642740000737831,
+          "ticks": 200000,
+          "ticks_per_second": 7567903.007642131
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.026233700045850128,
+          "ticks": 200000,
+          "ticks_per_second": 7623781.611074635
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.026774699974339455,
+          "ticks": 200000,
+          "ticks_per_second": 7469738.23018288
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.029530600004363805,
+          "ticks": 200000,
+          "ticks_per_second": 6772635.841142596
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.026683500036597252,
+          "ticks": 200000,
+          "ticks_per_second": 7495268.6014088765
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.02970630000345409,
+          "ticks": 200000,
+          "ticks_per_second": 6732578.610488182
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.028430900012608618,
+          "ticks": 200000,
+          "ticks_per_second": 7034599.67539907
+        }
+      ],
+      "speedup": 0.9782560526685716
+    }
+  }
+}

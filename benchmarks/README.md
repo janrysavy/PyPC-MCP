@@ -92,3 +92,37 @@ host-dependent; the useful comparison is between two runs on the same
 machine. Native buffers should avoid a list-to-bytes allocation, unchanged
 incremental requests should transfer only the four-byte VNC update header, and
 small changes should transfer a bounded rectangle rather than the full frame.
+
+## Whole-runtime CPU experiments
+
+`count_runtime_ticks.py` wraps the normal frontend CPU and classifies ordinary,
+REP-continuation and HLT Tick calls. Its counts and guest clock are valid, but
+the wrapper changes wall speed. Pass normal frontend arguments after `--` and
+stop with Ctrl+C, or provide an exact guest-clock boundary:
+
+```powershell
+python benchmarks/count_runtime_ticks.py --output counts.json `
+  --stop-cycles 47661509 -- --video cga --rpc-port 2301
+```
+
+`benchmark_runtime_hotpaths.py` compares the production device path with two
+benchmark-only prototypes and refuses any CPU, device or RAM-state difference:
+
+```powershell
+$env:PYTHON_JIT='0'
+python benchmarks/benchmark_runtime_hotpaths.py --ticks 100000 --repeats 5
+```
+
+The Windows 2026-09-24 results are under `benchmarks/results/`. On CPython
+3.14.7, enabling its experimental JIT was neutral on the production debugger
+loop, 4-6% lower throughput on arithmetic/branch CPU loops and 43% lower on the
+logic/memory loop. PyPy 3.12.14/8.0.0 was 19.7-23.1x faster for direct CPU Tick
+loops and 3.43x faster for the production debugger-loop benchmark. These are
+steady-state synthetic measurements; live boot and compiler timings belong in
+the integrating project's evidence.
+
+The idle-keyboard prototype produced 1.24-1.37x throughput while preserving
+the sampled final state. It bypasses the keyboard's two nested RLock paths only
+when no interrupt is scheduled. That benchmark does not prove concurrent host
+input safety. The empty-PIC shortcut was approximately neutral to 1% faster,
+so it is not a priority.

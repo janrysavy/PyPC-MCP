@@ -1,0 +1,423 @@
+{
+  "platform": "Windows-11-10.0.26200-SP0",
+  "python": "3.14.7 (tags/v3.14.7:823f032, Aug  5 2026, 10:51:32) [MSC v.1944 64 bit (AMD64)]",
+  "repeats": 5,
+  "scope": "Synthetic CPU/device benchmark. The idle-keyboard prototype does not exercise concurrent host input.",
+  "ticks": 100000,
+  "workloads": {
+    "arithmetic": {
+      "final_state_sha256": "56221205270e13732129da96edcf7b3d49fd9665dd823c6d65a16ee34d390f0e",
+      "identical_final_state": true,
+      "median_seconds": {
+        "baseline": 0.3446614000131376,
+        "both": 0.27716810000129044,
+        "keyboard_idle": 0.2787765000248328,
+        "pic_empty": 0.3422392000211403
+      },
+      "samples": [
+        {
+          "prototype": "baseline",
+          "seconds": 0.33137009997153655,
+          "ticks": 100000,
+          "ticks_per_second": 301777.37825045054
+        },
+        {
+          "prototype": "pic_empty",
+          "seconds": 0.33583210001233965,
+          "ticks": 100000,
+          "ticks_per_second": 297767.84290818434
+        },
+        {
+          "prototype": "keyboard_idle",
+          "seconds": 0.27360789995873347,
+          "ticks": 100000,
+          "ticks_per_second": 365486.52292233653
+        },
+        {
+          "prototype": "both",
+          "seconds": 0.2715013000415638,
+          "ticks": 100000,
+          "ticks_per_second": 368322.3615676651
+        },
+        {
+          "prototype": "pic_empty",
+          "seconds": 0.3325955999898724,
+          "ticks": 100000,
+          "ticks_per_second": 300665.432744886
+        },
+        {
+          "prototype": "keyboard_idle",
+          "seconds": 0.27557629998773336,
+          "ticks": 100000,
+          "ticks_per_second": 362875.90770487615
+        },
+        {
+          "prototype": "both",
+          "seconds": 0.27664009999716654,
+          "ticks": 100000,
+          "ticks_per_second": 361480.49397402705
+        },
+        {
+          "prototype": "baseline",
+          "seconds": 0.3394761999952607,
+          "ticks": 100000,
+          "ticks_per_second": 294571.4603892587
+        },
+        {
+          "prototype": "keyboard_idle",
+          "seconds": 0.2800207999534905,
+          "ticks": 100000,
+          "ticks_per_second": 357116.32856062584
+        },
+        {
+          "prototype": "both",
+          "seconds": 0.2802839999785647,
+          "ticks": 100000,
+          "ticks_per_second": 356780.97931971756
+        },
+        {
+          "prototype": "baseline",
+          "seconds": 0.3502118000178598,
+          "ticks": 100000,
+          "ticks_per_second": 285541.4923052287
+        },
+        {
+          "prototype": "pic_empty",
+          "seconds": 0.35791090002749115,
+          "ticks": 100000,
+          "ticks_per_second": 279399.1465259063
+        },
+        {
+          "prototype": "both",
+          "seconds": 0.28291309997439384,
+          "ticks": 100000,
+          "ticks_per_second": 353465.42810866976
+        },
+        {
+          "prototype": "baseline",
+          "seconds": 0.3446614000131376,
+          "ticks": 100000,
+          "ticks_per_second": 290139.82997860585
+        },
+        {
+          "prototype": "pic_empty",
+          "seconds": 0.3422392000211403,
+          "ticks": 100000,
+          "ticks_per_second": 292193.29636646813
+        },
+        {
+          "prototype": "keyboard_idle",
+          "seconds": 0.2787765000248328,
+          "ticks": 100000,
+          "ticks_per_second": 358710.29298054974
+        },
+        {
+          "prototype": "baseline",
+          "seconds": 0.3465580999618396,
+          "ticks": 100000,
+          "ticks_per_second": 288551.9051812993
+        },
+        {
+          "prototype": "pic_empty",
+          "seconds": 0.3431894999812357,
+          "ticks": 100000,
+          "ticks_per_second": 291384.2061178084
+        },
+        {
+          "prototype": "keyboard_idle",
+          "seconds": 0.2794211999862455,
+          "ticks": 100000,
+          "ticks_per_second": 357882.65172765165
+        },
+        {
+          "prototype": "both",
+          "seconds": 0.27716810000129044,
+          "ticks": 100000,
+          "ticks_per_second": 360791.8804492091
+        }
+      ],
+      "speedup_vs_baseline": {
+        "baseline": 1.0,
+        "both": 1.2435103462899697,
+        "keyboard_idle": 1.2363359177779905,
+        "pic_empty": 1.0070775060012054
+      }
+    },
+    "branch": {
+      "final_state_sha256": "2f23c10b079489a8486035c57a5e746edfd5341deb9252abcff81d6ff1a7f9bf",
+      "identical_final_state": true,
+      "median_seconds": {
+        "baseline": 0.23341760004404932,
+        "both": 0.17286529997363687,
+        "keyboard_idle": 0.17065499996533617,
+        "pic_empty": 0.2340962000307627
+      },
+      "samples": [
+        {
+          "prototype": "baseline",
+          "seconds": 0.23842060001334175,
+          "ticks": 100000,
+          "ticks_per_second": 419426.844804535
+        },
+        {
+          "prototype": "pic_empty",
+          "seconds": 0.23212669999338686,
+          "ticks": 100000,
+          "ticks_per_second": 430799.21440682583
+        },
+        {
+          "prototype": "keyboard_idle",
+          "seconds": 0.17065499996533617,
+          "ticks": 100000,
+          "ticks_per_second": 585977.5571785897
+        },
+        {
+          "prototype": "both",
+          "seconds": 0.17331709997961298,
+          "ticks": 100000,
+          "ticks_per_second": 576977.1131167256
+        },
+        {
+          "prototype": "pic_empty",
+          "seconds": 0.2340962000307627,
+          "ticks": 100000,
+          "ticks_per_second": 427174.81098308705
+        },
+        {
+          "prototype": "keyboard_idle",
+          "seconds": 0.17131579999113455,
+          "ticks": 100000,
+          "ticks_per_second": 583717.3220752255
+        },
+        {
+          "prototype": "both",
+          "seconds": 0.17086060001747683,
+          "ticks": 100000,
+          "ticks_per_second": 585272.4384075163
+        },
+        {
+          "prototype": "baseline",
+          "seconds": 0.23341760004404932,
+          "ticks": 100000,
+          "ticks_per_second": 428416.70885626675
+        },
+        {
+          "prototype": "keyboard_idle",
+          "seconds": 0.16832729999441653,
+          "ticks": 100000,
+          "ticks_per_second": 594080.6987536604
+        },
+        {
+          "prototype": "both",
+          "seconds": 0.17471880000084639,
+          "ticks": 100000,
+          "ticks_per_second": 572348.253304828
+        },
+        {
+          "prototype": "baseline",
+          "seconds": 0.23164770001312718,
+          "ticks": 100000,
+          "ticks_per_second": 431690.01891377784
+        },
+        {
+          "prototype": "pic_empty",
+          "seconds": 0.23323019995586947,
+          "ticks": 100000,
+          "ticks_per_second": 428760.9409884374
+        },
+        {
+          "prototype": "both",
+          "seconds": 0.17286529997363687,
+          "ticks": 100000,
+          "ticks_per_second": 578485.0980228576
+        },
+        {
+          "prototype": "baseline",
+          "seconds": 0.2334205000079237,
+          "ticks": 100000,
+          "ticks_per_second": 428411.3863032827
+        },
+        {
+          "prototype": "pic_empty",
+          "seconds": 0.23605890001635998,
+          "ticks": 100000,
+          "ticks_per_second": 423623.08725944895
+        },
+        {
+          "prototype": "keyboard_idle",
+          "seconds": 0.17029330000514165,
+          "ticks": 100000,
+          "ticks_per_second": 587222.1631560414
+        },
+        {
+          "prototype": "baseline",
+          "seconds": 0.2332884999923408,
+          "ticks": 100000,
+          "ticks_per_second": 428653.79134969425
+        },
+        {
+          "prototype": "pic_empty",
+          "seconds": 0.23574779997579753,
+          "ticks": 100000,
+          "ticks_per_second": 424182.11330186855
+        },
+        {
+          "prototype": "keyboard_idle",
+          "seconds": 0.17378890002146363,
+          "ticks": 100000,
+          "ticks_per_second": 575410.7425022519
+        },
+        {
+          "prototype": "both",
+          "seconds": 0.17002139997202903,
+          "ticks": 100000,
+          "ticks_per_second": 588161.2550917205
+        }
+      ],
+      "speedup_vs_baseline": {
+        "baseline": 1.0,
+        "both": 1.3502860324174204,
+        "keyboard_idle": 1.367774750763011,
+        "pic_empty": 0.9971011917894259
+      }
+    },
+    "logic_memory": {
+      "final_state_sha256": "92c4a6f3f3d8857d345361a591d35f2d6b774f7959186c53caa14bc1df3f0c84",
+      "identical_final_state": true,
+      "median_seconds": {
+        "baseline": 0.321196399978362,
+        "both": 0.25476349995005876,
+        "keyboard_idle": 0.2557698999880813,
+        "pic_empty": 0.3176367999985814
+      },
+      "samples": [
+        {
+          "prototype": "baseline",
+          "seconds": 0.3209954000194557,
+          "ticks": 100000,
+          "ticks_per_second": 311530.9440382602
+        },
+        {
+          "prototype": "pic_empty",
+          "seconds": 0.31923900003312156,
+          "ticks": 100000,
+          "ticks_per_second": 313244.93558000383
+        },
+        {
+          "prototype": "keyboard_idle",
+          "seconds": 0.2572599000413902,
+          "ticks": 100000,
+          "ticks_per_second": 388711.96009914926
+        },
+        {
+          "prototype": "both",
+          "seconds": 0.25476349995005876,
+          "ticks": 100000,
+          "ticks_per_second": 392520.90672173596
+        },
+        {
+          "prototype": "pic_empty",
+          "seconds": 0.3170938999974169,
+          "ticks": 100000,
+          "ticks_per_second": 315363.9978593553
+        },
+        {
+          "prototype": "keyboard_idle",
+          "seconds": 0.2556506000109948,
+          "ticks": 100000,
+          "ticks_per_second": 391158.8707231639
+        },
+        {
+          "prototype": "both",
+          "seconds": 0.2572144999867305,
+          "ticks": 100000,
+          "ticks_per_second": 388780.57032227545
+        },
+        {
+          "prototype": "baseline",
+          "seconds": 0.31488989997887984,
+          "ticks": 100000,
+          "ticks_per_second": 317571.31621784996
+        },
+        {
+          "prototype": "keyboard_idle",
+          "seconds": 0.2557698999880813,
+          "ticks": 100000,
+          "ticks_per_second": 390976.4206212691
+        },
+        {
+          "prototype": "both",
+          "seconds": 0.254782099975273,
+          "ticks": 100000,
+          "ticks_per_second": 392492.2512598222
+        },
+        {
+          "prototype": "baseline",
+          "seconds": 0.321196399978362,
+          "ticks": 100000,
+          "ticks_per_second": 311335.99257879815
+        },
+        {
+          "prototype": "pic_empty",
+          "seconds": 0.31895999994594604,
+          "ticks": 100000,
+          "ticks_per_second": 313518.9365968991
+        },
+        {
+          "prototype": "both",
+          "seconds": 0.2529938999796286,
+          "ticks": 100000,
+          "ticks_per_second": 395266.44716750924
+        },
+        {
+          "prototype": "baseline",
+          "seconds": 0.3581514999968931,
+          "ticks": 100000,
+          "ticks_per_second": 279211.45102245134
+        },
+        {
+          "prototype": "pic_empty",
+          "seconds": 0.3165822000009939,
+          "ticks": 100000,
+          "ticks_per_second": 315873.72884415503
+        },
+        {
+          "prototype": "keyboard_idle",
+          "seconds": 0.25618490000488237,
+          "ticks": 100000,
+          "ticks_per_second": 390343.0686121399
+        },
+        {
+          "prototype": "baseline",
+          "seconds": 0.33758880000095814,
+          "ticks": 100000,
+          "ticks_per_second": 296218.3579541625
+        },
+        {
+          "prototype": "pic_empty",
+          "seconds": 0.3176367999985814,
+          "ticks": 100000,
+          "ticks_per_second": 314824.982497137
+        },
+        {
+          "prototype": "keyboard_idle",
+          "seconds": 0.253699199995026,
+          "ticks": 100000,
+          "ticks_per_second": 394167.58114318294
+        },
+        {
+          "prototype": "both",
+          "seconds": 0.24972750002052635,
+          "ticks": 100000,
+          "ticks_per_second": 400436.47572566295
+        }
+      ],
+      "speedup_vs_baseline": {
+        "baseline": 1.0,
+        "both": 1.2607630215526404,
+        "keyboard_idle": 1.2558021877997745,
+        "pic_empty": 1.0112065100133125
+      }
+    }
+  }
+}

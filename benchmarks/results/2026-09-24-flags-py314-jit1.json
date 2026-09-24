@@ -1,0 +1,544 @@
+{
+  "base_commit": "5144476fe37815ec4b28007b98c823d2b749f7b8",
+  "cpu_affinity": null,
+  "platform": "Windows-11-10.0.26200-SP0",
+  "python": "3.14.7 (tags/v3.14.7:823f032, Aug  5 2026, 10:51:32) [MSC v.1944 64 bit (AMD64)]",
+  "repeats": 7,
+  "ticks": 200000,
+  "workloads": {
+    "arithmetic": {
+      "final": {
+        "cpu": {
+          "_ah": 193,
+          "_al": 46,
+          "_bh": 7,
+          "_bl": 13,
+          "_bp": 0,
+          "_ch": 0,
+          "_cl": 0,
+          "_clock": 1033329,
+          "_crash_counter": 0,
+          "_cs": 4096,
+          "_dh": 125,
+          "_di": 0,
+          "_dl": 203,
+          "_ds": 8192,
+          "_es": 0,
+          "_flags": 134,
+          "_in_hlt": false,
+          "_inhibit_interrupts": false,
+          "_ip": 260,
+          "_rep": false,
+          "_rep_addr": 0,
+          "_rep_do_nothing": false,
+          "_rep_mode": "NotSet",
+          "_rep_opcode": 0,
+          "_segment_override": 0,
+          "_segment_override_set": false,
+          "_si": 0,
+          "_sp": 65280,
+          "_ss": 12288
+        },
+        "keyboard_pending": [],
+        "pic": {
+          "_auto_eoi": false,
+          "_has_slave": false,
+          "_icw1": 0,
+          "_icw2": 0,
+          "_icw3": 0,
+          "_icw4": 0,
+          "_ii_icw2": false,
+          "_ii_icw3": false,
+          "_ii_icw4": false,
+          "_ii_icw4_req": false,
+          "_imr": 255,
+          "_in_init": false,
+          "_int_in_service": -1,
+          "_int_offset": 8,
+          "_irq_request_level": 7,
+          "_irr": 3,
+          "_isr": 0,
+          "_ocw2": 0,
+          "_ocw3": 0,
+          "_read_irr": true,
+          "_trace_address": null,
+          "_trace_clock": 0,
+          "_trace_hook": null
+        },
+        "pit": [
+          {
+            "counter_cur": 4,
+            "counter_ini": 32,
+            "is_bcd": false,
+            "is_pending": true,
+            "is_running": true,
+            "latch_n": 2,
+            "latch_n_cur": 2,
+            "latch_type": 3,
+            "latched_count": null,
+            "mode": 2
+          },
+          {},
+          {}
+        ],
+        "pit_clock": 1,
+        "ram_sha256": "2add8a0eb28be01a9ddaa88d3e7efd97937ef7b6b8c976ce9dfe7421c260ee8e",
+        "video": [
+          1033329,
+          13,
+          true,
+          false,
+          false
+        ]
+      },
+      "identical_final_state": true,
+      "median_seconds": {
+        "fast": 0.7157974000438116,
+        "legacy": 0.9169939999701455
+      },
+      "samples": [
+        {
+          "mode": "legacy",
+          "seconds": 0.9169939999701455,
+          "ticks": 200000,
+          "ticks_per_second": 218103.93525640448
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.7272624999750406,
+          "ticks": 200000,
+          "ticks_per_second": 275003.86725132115
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.7052904000156559,
+          "ticks": 200000,
+          "ticks_per_second": 283571.13608176215
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.9023944999789819,
+          "ticks": 200000,
+          "ticks_per_second": 221632.5564979156
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.9117536999983713,
+          "ticks": 200000,
+          "ticks_per_second": 219357.48656721358
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.7143048000289127,
+          "ticks": 200000,
+          "ticks_per_second": 279992.51858856983
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.7157974000438116,
+          "ticks": 200000,
+          "ticks_per_second": 279408.6706486481
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.9251651000231504,
+          "ticks": 200000,
+          "ticks_per_second": 216177.63142491583
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.9080528000486083,
+          "ticks": 200000,
+          "ticks_per_second": 220251.5095920567
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.7218348999740556,
+          "ticks": 200000,
+          "ticks_per_second": 277071.668337439
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.7078997000353411,
+          "ticks": 200000,
+          "ticks_per_second": 282525.90019463946
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.94535240001278,
+          "ticks": 200000,
+          "ticks_per_second": 211561.31829495143
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.9292310999589972,
+          "ticks": 200000,
+          "ticks_per_second": 215231.71147503037
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.7268671999918297,
+          "ticks": 200000,
+          "ticks_per_second": 275153.4255531796
+        }
+      ],
+      "speedup": 1.2810803726222242
+    },
+    "branch": {
+      "final": {
+        "cpu": {
+          "_ah": 120,
+          "_al": 50,
+          "_bh": 0,
+          "_bl": 0,
+          "_bp": 0,
+          "_ch": 0,
+          "_cl": 0,
+          "_clock": 1169220,
+          "_crash_counter": 0,
+          "_cs": 4096,
+          "_dh": 0,
+          "_di": 0,
+          "_dl": 0,
+          "_ds": 8192,
+          "_es": 0,
+          "_flags": 2,
+          "_in_hlt": false,
+          "_inhibit_interrupts": false,
+          "_ip": 257,
+          "_rep": false,
+          "_rep_addr": 0,
+          "_rep_do_nothing": false,
+          "_rep_mode": "NotSet",
+          "_rep_opcode": 0,
+          "_segment_override": 0,
+          "_segment_override_set": false,
+          "_si": 0,
+          "_sp": 65280,
+          "_ss": 12288
+        },
+        "keyboard_pending": [],
+        "pic": {
+          "_auto_eoi": false,
+          "_has_slave": false,
+          "_icw1": 0,
+          "_icw2": 0,
+          "_icw3": 0,
+          "_icw4": 0,
+          "_ii_icw2": false,
+          "_ii_icw3": false,
+          "_ii_icw4": false,
+          "_ii_icw4_req": false,
+          "_imr": 255,
+          "_in_init": false,
+          "_int_in_service": -1,
+          "_int_offset": 8,
+          "_irq_request_level": 7,
+          "_irr": 3,
+          "_isr": 0,
+          "_ocw2": 0,
+          "_ocw3": 0,
+          "_read_irr": true,
+          "_trace_address": null,
+          "_trace_clock": 0,
+          "_trace_hook": null
+        },
+        "pit": [
+          {
+            "counter_cur": 15,
+            "counter_ini": 32,
+            "is_bcd": false,
+            "is_pending": true,
+            "is_running": true,
+            "latch_n": 2,
+            "latch_n_cur": 2,
+            "latch_type": 3,
+            "latched_count": null,
+            "mode": 2
+          },
+          {},
+          {}
+        ],
+        "pit_clock": 0,
+        "ram_sha256": "92ae978c8d2c9deec41cad8a9deb5cde9579adb5fdd42b9ee12a6379e9a6a546",
+        "video": [
+          1169220,
+          14,
+          false,
+          false,
+          false
+        ]
+      },
+      "identical_final_state": true,
+      "median_seconds": {
+        "fast": 0.4936671999748796,
+        "legacy": 0.607092600024771
+      },
+      "samples": [
+        {
+          "mode": "legacy",
+          "seconds": 0.8078474000212736,
+          "ticks": 200000,
+          "ticks_per_second": 247571.50916711902
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.5426738999667577,
+          "ticks": 200000,
+          "ticks_per_second": 368545.45614272455
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.5030873999930918,
+          "ticks": 200000,
+          "ticks_per_second": 397545.2376719161
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.6209079999825917,
+          "ticks": 200000,
+          "ticks_per_second": 322108.9114741755
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.607092600024771,
+          "ticks": 200000,
+          "ticks_per_second": 329439.0344929908
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.4959951000055298,
+          "ticks": 200000,
+          "ticks_per_second": 403229.78996721987
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.4936671999748796,
+          "ticks": 200000,
+          "ticks_per_second": 405131.2301286718
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.6004858000087552,
+          "ticks": 200000,
+          "ticks_per_second": 333063.6627828401
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.6033200999954715,
+          "ticks": 200000,
+          "ticks_per_second": 331498.9837094789
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.4929204999934882,
+          "ticks": 200000,
+          "ticks_per_second": 405744.9426482407
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.4877697000047192,
+          "ticks": 200000,
+          "ticks_per_second": 410029.56927842175
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.607844699989073,
+          "ticks": 200000,
+          "ticks_per_second": 329031.4121412843
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.6012018999899738,
+          "ticks": 200000,
+          "ticks_per_second": 332666.9460015602
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.49132199998712167,
+          "ticks": 200000,
+          "ticks_per_second": 407065.02050639363
+        }
+      ],
+      "speedup": 1.229760859250246
+    },
+    "logic_memory": {
+      "final": {
+        "cpu": {
+          "_ah": 0,
+          "_al": 0,
+          "_bh": 0,
+          "_bl": 0,
+          "_bp": 0,
+          "_ch": 0,
+          "_cl": 0,
+          "_clock": 1366670,
+          "_crash_counter": 0,
+          "_cs": 4096,
+          "_dh": 90,
+          "_di": 0,
+          "_dl": 165,
+          "_ds": 8192,
+          "_es": 0,
+          "_flags": 70,
+          "_in_hlt": false,
+          "_inhibit_interrupts": false,
+          "_ip": 262,
+          "_rep": false,
+          "_rep_addr": 0,
+          "_rep_do_nothing": false,
+          "_rep_mode": "NotSet",
+          "_rep_opcode": 0,
+          "_segment_override": 0,
+          "_segment_override_set": false,
+          "_si": 0,
+          "_sp": 65280,
+          "_ss": 12288
+        },
+        "keyboard_pending": [],
+        "pic": {
+          "_auto_eoi": false,
+          "_has_slave": false,
+          "_icw1": 0,
+          "_icw2": 0,
+          "_icw3": 0,
+          "_icw4": 0,
+          "_ii_icw2": false,
+          "_ii_icw3": false,
+          "_ii_icw4": false,
+          "_ii_icw4_req": false,
+          "_imr": 255,
+          "_in_init": false,
+          "_int_in_service": -1,
+          "_int_offset": 8,
+          "_irq_request_level": 7,
+          "_irr": 3,
+          "_isr": 0,
+          "_ocw2": 0,
+          "_ocw3": 0,
+          "_read_irr": true,
+          "_trace_address": null,
+          "_trace_clock": 0,
+          "_trace_hook": null
+        },
+        "pit": [
+          {
+            "counter_cur": 29,
+            "counter_ini": 32,
+            "is_bcd": false,
+            "is_pending": true,
+            "is_running": true,
+            "latch_n": 2,
+            "latch_n_cur": 2,
+            "latch_type": 3,
+            "latched_count": null,
+            "mode": 2
+          },
+          {},
+          {}
+        ],
+        "pit_clock": 2,
+        "ram_sha256": "df01a95773fb14c68fc208db24935b643d5d7265261182f2e244aacb7185b5e8",
+        "video": [
+          1366670,
+          17,
+          false,
+          false,
+          false
+        ]
+      },
+      "identical_final_state": true,
+      "median_seconds": {
+        "fast": 1.1142771000158973,
+        "legacy": 1.3450639999937266
+      },
+      "samples": [
+        {
+          "mode": "legacy",
+          "seconds": 0.8480641000205651,
+          "ticks": 200000,
+          "ticks_per_second": 235831.23020435614
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.6686654000077397,
+          "ticks": 200000,
+          "ticks_per_second": 299103.25851716724
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.6929043999989517,
+          "ticks": 200000,
+          "ticks_per_second": 288640.10677418497
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.8624400999979116,
+          "ticks": 200000,
+          "ticks_per_second": 231900.1632698715
+        },
+        {
+          "mode": "legacy",
+          "seconds": 0.8595629000337794,
+          "ticks": 200000,
+          "ticks_per_second": 232676.39865813233
+        },
+        {
+          "mode": "fast",
+          "seconds": 0.7396928999805823,
+          "ticks": 200000,
+          "ticks_per_second": 270382.4790061527
+        },
+        {
+          "mode": "fast",
+          "seconds": 1.2571823000325821,
+          "ticks": 200000,
+          "ticks_per_second": 159085.91776611606
+        },
+        {
+          "mode": "legacy",
+          "seconds": 1.532372599991504,
+          "ticks": 200000,
+          "ticks_per_second": 130516.55974604927
+        },
+        {
+          "mode": "legacy",
+          "seconds": 1.3450639999937266,
+          "ticks": 200000,
+          "ticks_per_second": 148691.80946106117
+        },
+        {
+          "mode": "fast",
+          "seconds": 1.1351921000168659,
+          "ticks": 200000,
+          "ticks_per_second": 176181.6348061518
+        },
+        {
+          "mode": "fast",
+          "seconds": 1.1142771000158973,
+          "ticks": 200000,
+          "ticks_per_second": 179488.56706931035
+        },
+        {
+          "mode": "legacy",
+          "seconds": 1.9013891000067815,
+          "ticks": 200000,
+          "ticks_per_second": 105186.25566922977
+        },
+        {
+          "mode": "legacy",
+          "seconds": 1.4543565000058152,
+          "ticks": 200000,
+          "ticks_per_second": 137517.86442952626
+        },
+        {
+          "mode": "fast",
+          "seconds": 1.1268063000170514,
+          "ticks": 200000,
+          "ticks_per_second": 177492.79534288502
+        }
+      ],
+      "speedup": 1.207118049876944
+    }
+  }
+}
