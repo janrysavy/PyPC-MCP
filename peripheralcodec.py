@@ -103,7 +103,10 @@ KEYBOARD = {
     'clock': lambda v: _integer(v, 0),
     'next_interrupt': lambda v: _array(v, None, lambda delay: _integer(delay, 0)),
 }
-KEYBOARD_EXTRA = {'_keyboard_buffer', '_pressed_scancodes', '_state_lock', '_pic', '_b'}
+KEYBOARD_EXTRA = {
+    '_keyboard_buffer', '_pressed_scancodes', '_state_lock',
+    '_interrupt_pending', '_pic', '_b',
+}
 
 
 def _check_keyboard(kb):
@@ -146,6 +149,7 @@ def load_keyboard_state(payload):
     for name in KEYBOARD:
         value = fields[name]
         setattr(kb, '_' + name, list(value) if name == 'next_interrupt' else value)
+    kb._interrupt_pending = bool(kb._next_interrupt)
     kb._pressed_scancodes = set(fields['pressed'])
     for scancode in fields['queue']:
         kb._keyboard_buffer.put(scancode)

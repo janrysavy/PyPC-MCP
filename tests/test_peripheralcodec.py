@@ -171,6 +171,33 @@ def test_input_fresh_process_preserves_queue_and_irq_delays(reset):
     assert fresh_process(bad)['reads'] != expected['reads']
 
 
+def test_idle_keyboard_tick_avoids_state_lock():
+    kb = Keyboard()
+
+    class UnexpectedLock:
+        def __enter__(self):
+            raise AssertionError('idle Tick acquired the keyboard state lock')
+        def __exit__(self, *args):
+            pass
+
+    kb._state_lock = UnexpectedLock()
+    assert kb.Tick(100, 100) is False
+
+
+def test_pending_flag_survives_snapshot_and_delivers_irq():
+    kb, pic = Keyboard(), i8259()
+    kb.SetPic(pic)
+    pic.IO_Write(0x21, 0)
+    kb.PushKeyboardScancode(42)
+    saved = dump_keyboard_state(kb)
+    loaded = load_keyboard_state(saved)
+    loaded.SetPic(pic)
+    assert loaded._interrupt_pending is True
+    loaded.Tick(4770, 0)
+    assert pic.GetPendingInterrupt() == 1
+    assert loaded._interrupt_pending is False
+
+
 @pytest.mark.parametrize('synchronized', [True, False])
 def test_keyboard_capture_cannot_observe_half_enqueued_input(monkeypatch, synchronized):
     kb = Keyboard()
@@ -344,13 +371,22 @@ def test_keyboard_operations_wait_for_enqueue(action, monkeypatch):
     try:
         assert queued.wait(5)
         other.start()
-        assert attempt.wait(5)
-        assert blocked == [True]
+        if action == 'irq':
+            # The lock-free empty check linearizes this Tick before the
+            # producer publishes its completed schedule operation.
+            assert not attempt.wait(0.05)
+            assert blocked == []
+        else:
+            assert attempt.wait(5)
+            assert blocked == [True]
     finally:
         release.set()
         writer.join(5)
         if other.ident is not None:
             other.join(5)
+    if action == 'irq':
+        # Publishing the pending flag makes the very next Tick deliver it.
+        kb.Tick(4770, 0)
     assert not writer.is_alive() and not other.is_alive()
     assert errors == []
     state = dump_keyboard_state(kb)['fields']

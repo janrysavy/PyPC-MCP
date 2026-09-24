@@ -27,6 +27,12 @@ class Keyboard(device.Device):
         self._pressed_scancodes = set()
         super().__init__()
         self._state_lock = threading.RLock()
+        # Derived from _next_interrupt.  The emulator checks the keyboard after
+        # every CPU instruction, while host input is rare.  Reading this flag
+        # without the lock may defer a newly queued event by one instruction,
+        # but cannot lose it: producers set it while holding _state_lock before
+        # they publish the completed operation.
+        self._interrupt_pending = False
 
     @override
     def GetIRQNumber(self) -> int:
@@ -114,17 +120,25 @@ class Keyboard(device.Device):
         return True
 
     @override
-    @_locked
     def Tick(self, cycles: int, clock: int) -> bool:
-        if (self._0x61_bits & 0x80) == 0 and self.CheckScheduledInterrupt(cycles):
-            self._pic.RequestInterruptPIC(self._irq_nr)
+        if not self._interrupt_pending:
+            return False
+        with self._state_lock:
+            if ((self._0x61_bits & 0x80) == 0
+                    and super().CheckScheduledInterrupt(cycles)):
+                self._pic.RequestInterruptPIC(self._irq_nr)
+            self._interrupt_pending = bool(self._next_interrupt)
 
         return False
 
     @_locked
     def ScheduleInterrupt(self, cycles_delay):
-        return super().ScheduleInterrupt(cycles_delay)
+        result = super().ScheduleInterrupt(cycles_delay)
+        self._interrupt_pending = True
+        return result
 
     @_locked
     def CheckScheduledInterrupt(self, cycles):
-        return super().CheckScheduledInterrupt(cycles)
+        result = super().CheckScheduledInterrupt(cycles)
+        self._interrupt_pending = bool(self._next_interrupt)
+        return result

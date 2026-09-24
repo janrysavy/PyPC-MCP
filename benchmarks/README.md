@@ -122,7 +122,16 @@ steady-state synthetic measurements; live boot and compiler timings belong in
 the integrating project's evidence.
 
 The idle-keyboard prototype produced 1.24-1.37x throughput while preserving
-the sampled final state. It bypasses the keyboard's two nested RLock paths only
-when no interrupt is scheduled. That benchmark does not prove concurrent host
-input safety. The empty-PIC shortcut was approximately neutral to 1% faster,
-so it is not a priority.
+the sampled final state. It has since become the production implementation,
+using a lock-protected pending flag published by input producers. The benchmark
+now compares production code against the former locked implementation. Its
+concurrency tests prove that a Tick racing an incomplete enqueue can defer the
+event by at most one instruction and that the following Tick delivers it. The
+empty-PIC shortcut was approximately neutral to 1% faster, so it is not a
+priority.
+
+The post-change CPython 3.14 comparison is
+`results/2026-09-24-keyboard-fastpath-py314.json`. Against the former locked
+path, production throughput improved 1.20x for arithmetic, 1.22x for
+logic/memory, and 1.32x for branch workloads with identical sampled final
+state.

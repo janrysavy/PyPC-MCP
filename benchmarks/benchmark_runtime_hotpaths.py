@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""Measure two exact-state prototypes found by whole-boot profiling.
+"""Measure the production keyboard fast path against its locked predecessor.
 
-The prototypes are installed only while this benchmark runs.  ``pic_empty``
-returns immediately when the PIC has no unmasked request.  ``keyboard_idle``
-avoids two RLock acquisitions when no keyboard interrupt is scheduled.  Every
-mode must finish with identical CPU, device and RAM state.
+``keyboard_legacy`` restores the two nested RLock acquisitions used before the
+idle pending flag. ``pic_empty`` retains the rejected PIC experiment as a
+negative comparison. Every mode must finish with identical CPU, device and RAM
+state.
 """
 from __future__ import annotations
 
@@ -25,7 +25,8 @@ import i8259
 import keyboard
 
 
-MODES = ('baseline', 'pic_empty', 'keyboard_idle', 'both')
+MODES = ('production', 'keyboard_legacy', 'pic_empty',
+         'keyboard_legacy_pic_empty')
 ORIGINAL_PIC = i8259.i8259.GetPendingInterrupt
 ORIGINAL_KEYBOARD = keyboard.Keyboard.Tick
 
@@ -36,18 +37,22 @@ def pic_empty(self):
     return ORIGINAL_PIC(self)
 
 
-def keyboard_idle(self, cycles, clock):
-    if not self._next_interrupt:
-        return False
-    return ORIGINAL_KEYBOARD(self, cycles, clock)
+def keyboard_legacy(self, cycles, clock):
+    with self._state_lock:
+        if ((self._0x61_bits & 0x80) == 0
+                and self.CheckScheduledInterrupt(cycles)):
+            self._pic.RequestInterruptPIC(self._irq_nr)
+    return False
 
 
 @contextmanager
 def prototype(mode):
     i8259.i8259.GetPendingInterrupt = (
-        pic_empty if mode in ('pic_empty', 'both') else ORIGINAL_PIC)
+        pic_empty if mode in ('pic_empty', 'keyboard_legacy_pic_empty')
+        else ORIGINAL_PIC)
     keyboard.Keyboard.Tick = (
-        keyboard_idle if mode in ('keyboard_idle', 'both')
+        keyboard_legacy if mode in ('keyboard_legacy',
+                                    'keyboard_legacy_pic_empty')
         else ORIGINAL_KEYBOARD)
     try:
         yield
@@ -77,8 +82,8 @@ def main():
         'ticks': args.ticks,
         'repeats': args.repeats,
         'workloads': {},
-        'scope': ('Synthetic CPU/device benchmark. The idle-keyboard prototype '
-                  'does not exercise concurrent host input.'),
+        'scope': ('Synthetic CPU/device benchmark. Concurrent host input and '
+                  'snapshot behavior are covered by the keyboard tests.'),
     }
     for workload in benchmark_flags.PROGRAMS:
         for mode in MODES:
@@ -105,13 +110,15 @@ def main():
         report['workloads'][workload] = {
             'samples': samples,
             'median_seconds': medians,
-            'speedup_vs_baseline': {
-                mode: medians['baseline'] / medians[mode] for mode in MODES
+            'speedup_vs_keyboard_legacy': {
+                mode: medians['keyboard_legacy'] / medians[mode]
+                for mode in MODES
             },
             'identical_final_state': True,
             'final_state_sha256': final_sha256,
         }
-        print(workload, report['workloads'][workload]['speedup_vs_baseline'],
+        print(workload,
+              report['workloads'][workload]['speedup_vs_keyboard_legacy'],
               file=sys.stderr, flush=True)
     print(json.dumps(report, indent=2, sort_keys=True))
 

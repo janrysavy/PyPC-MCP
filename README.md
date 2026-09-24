@@ -132,6 +132,9 @@ PyPC is an IBM PC (8088) emulator written in Python.
 
 It boots and you can run e.g. MS-DOS with CheckIt3 or SpaceQuest 3 in it.
 The required firmware is committed under `roms`. It requires Python 3.12 or later.
+Stock CPython and its standard library are the required, offline-capable
+runtime. PyPy is an optional accelerator only: no normal boot, debugger, RPC,
+VNC, snapshot, or DOS-control path may require it or a downloaded package.
 When it is running, you can also connect a VNC client to it: you see it then use the original font and see nice graphics.
 
 
