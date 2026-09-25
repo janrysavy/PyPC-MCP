@@ -1,5 +1,5 @@
 > [!IMPORTANT]
-> This repository is the [`janrysavy/PyPC-MPC`](https://github.com/janrysavy/PyPC-MPC)
+> This repository is the [`janrysavy/PyPC-MCP`](https://github.com/janrysavy/PyPC-MCP)
 > fork focused on AI-assisted reverse engineering of DOS software. Its default
 > `ai-re-agent` branch adds a supervised JSON-RPC debugger agent.
 >
