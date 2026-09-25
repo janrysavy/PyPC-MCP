@@ -1,9 +1,9 @@
 {
   "schema": 1,
-  "observed_at": "2026-09-23",
+  "observed_at": "2026-09-25",
   "source": {
     "repository": "https://github.com/janrysavy/GLaBIOS.git",
-    "commit": "a590012aa824918937f34224945149dc0f76fdd3",
+    "commit": "5cd99653737beb31ab9997edf7fdd2036ebd5bb8",
     "base_tag": "v0.4.2",
     "build_script": "firmware/glabios/src/PYPC.BAT",
     "files": {
@@ -13,7 +13,7 @@
     }
   },
   "toolchain": {
-    "runner": "DOSBox-X 2026.08.31 commit 0e5c2f9",
+    "runner": "PyPC-MCP 781495f73836bebd5d123e8a701119d8aa088798, CPython 3.13, DOSCTRL direct EXEC",
     "assembler": {
       "name": "Microsoft Macro Assembler 5.00",
       "path_in_dostools": "Mount/MASM50/BIN/MASM.EXE",
