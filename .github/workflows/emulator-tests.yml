@@ -2,7 +2,7 @@ name: Emulator regression tests
 on:
   pull_request:
   push:
-    branches: [ai-re-agent]
+    branches: [master, ai-re-agent]
 permissions:
   contents: read
 jobs:
