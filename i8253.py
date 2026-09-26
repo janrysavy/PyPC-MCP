@@ -165,6 +165,10 @@ class i8253(device.Device):
 
     def Command(self, v: int):
         nr    = v >> 6
+        # SC=11 is reserved on the 8253. Ignore unsupported commands,
+        # including 8254 read-back probes, rather than indexing counter 3.
+        if nr == 3:
+            return
         latch = (v >> 4) & 3
         mode  = (v >> 1) & 7
         type  = v & 1

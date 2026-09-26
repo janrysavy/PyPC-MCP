@@ -145,7 +145,6 @@ class i8237(device.Device):
             self._channel_address_register[addr // 2].Put(value)
         elif addr in (1, 3, 5, 7):
             self._channel_word_count[addr // 2].Put(value)
-            self._reached_tc[addr // 2] = False
         elif addr == 8:
             self._command = value
             self._dma_enabled = (self._command & 4) == 0
@@ -153,8 +152,8 @@ class i8237(device.Device):
             self._channel_mask[value & 3] = (value & 4) == 4  # dreq enable/disable
         elif addr == 0x0b:  # mode register
             self._channel_mode[value & 3] = value
-            for i in range(4):
-                self._reached_tc[i] = False
+            # TC status is sticky until a status read or master clear;
+            # programming a mode must not acknowledge completed transfers.
         elif addr == 0x0c:  # reset flipflop
             self._ff.reset()
         elif addr == 0x0d:  # master reset
