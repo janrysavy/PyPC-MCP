@@ -134,15 +134,18 @@ class i8259(device.Device):
     @override
     def IO_Write(self, addr: int, value: int) -> bool:
         if addr == 0x0020:
-            self._in_init = (value & 16) == 16
-            self._has_slave = (value & 2) == 0
-            self._icw1 = value
-
-            if self._in_init:  # ICW
+            if value & 0x10:  # ICW1 starts a new initialization sequence.
+                self._in_init = True
+                self._has_slave = (value & 2) == 0
+                self._icw1 = value
                 self._ii_icw2 = False
                 self._ii_icw3 = False
                 self._ii_icw4 = False
                 self._ii_icw4_req = (value & 1) == 1
+                # Without ICW4 all its functions are cleared, including AEOI.
+                if not self._ii_icw4_req:
+                    self._icw4 = 0
+                    self._auto_eoi = False
 
                 self._read_irr = True  # Initialization selects IRR for command-port reads.
                 self._imr = 0  # TODO 255?
@@ -174,6 +177,9 @@ class i8259(device.Device):
                     self._icw2 = value
                     self._ii_icw2 = True
                     self._int_offset = value
+                    # Single mode omits ICW3; IC4=0 also omits ICW4.
+                    if not self._has_slave and not self._ii_icw4_req:
+                        self._in_init = False
 
                 elif self._ii_icw3 == False and self._has_slave:
                     self._ii_icw3 = True
