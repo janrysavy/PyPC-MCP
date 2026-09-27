@@ -75,6 +75,11 @@ def test_machine_mailbox_and_serial(tmp_path):
     devices=[i8253.i8253(),kb,i8255.i8255(kb),vga.VGA(False),xtide.XTIDE([]),dosmailbox.DOSMailbox(),u]
     cpu=i8088.i8088(bus.Bus(1048576,devices,[]),devices,True)
     manifest,buffers=capture_machine(cpu)
+    # Exercise the public persistence boundary, not just the detached codec.
+    from checkpointbundle import write_bundle,read_bundle
+    archive=tmp_path/'serial-machine.zip'
+    digest=write_bundle(archive,manifest,buffers)
+    assert read_bundle(archive,digest)==(manifest,buffers)
     restored,_=prepare_machine(manifest,buffers,tmp_path/'restored')
     assert capture_machine(restored)==(manifest,buffers)
 
