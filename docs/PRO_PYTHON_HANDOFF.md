@@ -4,10 +4,16 @@
 
 - Connector artifact download was exercised in the receiving Python environment.
   An existing public log artifact arrived with the same SHA-256 as GitHub metadata.
-- The bounded public-input exporter has 12 passing standard-library unit tests.
+- The bounded public-input exporter has 14 passing standard-library unit tests.
   It permits only five fixed public repositories and immutable commits, checks
   current public visibility, verifies raw commit/tree/blob identities, and treats
   symlinks as literal blob content. No fetched code is executed.
+- First source-export CI run 36358206319 failed closed at HELLO.ASM: archive
+  content did not match the committed blob. The fixture attributes request CRLF.
+  Two local regression cases fail on the original exporter. All 14 tests pass
+  after adding exact-hash-checked EOL restoration and canonical Git-blob fallback.
+  Wrong canonical blob bytes still fail; no masks or relaxed equality are used.
+  Raw red/green logs and source hashes: docs/evidence/connector_export_20260928.json.gz.
 - Private repositories and licensed private tool mounts are not read or packaged.
   No private workflow is enabled, dispatched, or re-run.
 

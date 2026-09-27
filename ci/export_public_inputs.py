@@ -166,7 +166,16 @@ def export_repository(repo, prefix, sha, output, manifest, get_json=api_json, ge
             try:
                 data = archive.read(archive_root + row["path"])
             except KeyError:
-                # export-ignore may omit committed files from a source archive.
+                data = None
+            if data is not None and oid("blob", data) != row["oid"]:
+                # Source archives may apply eol filters. Accept a restoration
+                # only if it reproduces the exact committed Git object.
+                lf = data.replace(b"\r\n", b"\n")
+                data = next((candidate for candidate in (lf, lf.replace(b"\n", b"\r\n"))
+                             if oid("blob", candidate) == row["oid"]), None)
+            if data is None:
+                # export-ignore/export-subst or a noncanonical archive requires
+                # canonical Git bytes, not a relaxed equality/masking rule.
                 blob = get_json(repo, "/git/blobs/" + row["oid"])
                 if blob.get("encoding") != "base64":
                     raise ValueError("non-base64 Git blob")

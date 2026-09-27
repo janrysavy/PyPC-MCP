@@ -102,9 +102,35 @@ class PublicInputs(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "tree hash"):
             self.run_export(fixture)
 
-    def test_corrupt_archive_blob_refused(self):
+    def test_archive_line_ending_filter_is_recovered_only_by_exact_hash(self):
+        fixture = self.fixture(files={"binary.bin": b"one\ntwo\n"})
+        stream = io.BytesIO()
+        with zipfile.ZipFile(stream, "w") as archive:
+            archive.writestr("checkout/binary.bin", b"one\r\ntwo\r\n")
+        fixture = (*fixture[:5], stream.getvalue(), *fixture[6:])
+        data, _ = self.run_export(fixture)
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            self.assertEqual(archive.read("tools/pypc/src/binary.bin"), b"one\ntwo\n")
+        self.assertFalse(any(s.startswith("/git/blobs/") for s in fixture[-1]))
+
+    def test_different_archive_bytes_require_verified_canonical_blob(self):
+        fixture = self.fixture(mutate=True)
+        data, _ = self.run_export(fixture)
+        with zipfile.ZipFile(io.BytesIO(data)) as archive:
+            self.assertEqual(archive.read("tools/pypc/src/binary.bin"), b"\x00\xff\xfa\x80")
+        self.assertEqual(sum(s.startswith("/git/blobs/") for s in fixture[-1]), 2)
+
+    def test_corrupt_canonical_blob_still_refused(self):
+        fixture = self.fixture(mutate=True)
+        original = fixture[6]
+        def get_json(repo, suffix=""):
+            row = original(repo, suffix)
+            if suffix.startswith("/git/blobs/"):
+                return {"encoding": "base64", "content": base64.b64encode(b"BAD").decode()}
+            return row
+        fixture = (*fixture[:6], get_json, fixture[-1])
         with self.assertRaisesRegex(ValueError, "blob differs"):
-            self.run_export(self.fixture(mutate=True))
+            self.run_export(fixture)
 
     def test_export_ignored_file_uses_verified_git_blob(self):
         fixture = self.fixture(missing=True)
