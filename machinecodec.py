@@ -16,6 +16,7 @@ import keyboard
 import rom
 import vga
 import xtide
+from uart8250 import UART8250
 from biosservice import VGAInterruptService
 from diskcodec import dump_disk_state, validate_disk_state, restore_disk_state
 from statecodec import dump_cpu_state, load_cpu_state
@@ -47,8 +48,12 @@ def capture_machine(cpu, *, bios_service=False, disk_mode='auto'):
     changing render caches. External filesystem writers must also be excluded.
     """
     devices = cpu._devices
-    mailbox = len(devices) == 8 and type(devices[5]) is dosmailbox.DOSMailbox
-    dma_index = 6 if mailbox else 5
+    if len(devices) < 7:
+        raise ValueError('unsupported motherboard topology')
+    mailbox = type(devices[5]) is dosmailbox.DOSMailbox
+    uart_index = 6 if mailbox else 5
+    serial = type(devices[uart_index]) is UART8250
+    dma_index = uart_index + int(serial)
     pic_index = dma_index + 1
     if (len(devices) != pic_index + 1 or type(devices[0]) is not i8253.i8253
             or type(devices[1]) is not keyboard.Keyboard
@@ -90,7 +95,10 @@ def capture_machine(cpu, *, bios_service=False, disk_mode='auto'):
                      'bios_service':bios_service}
     if mailbox:
         configuration['dos_mailbox'] = True
-    return {'format':'pypc.machine', 'version':2 if mailbox else 1,
+    extra = {'serial': devices[uart_index].dump()} if serial else {}
+    if serial:
+        configuration['com1'] = True
+    return {**extra, 'format':'pypc.machine', 'version':3 if serial else (2 if mailbox else 1),
             'source':source_identity(),
             'configuration':configuration,
             'cpu':dump_cpu_state(cpu._state), 'pit':dump_pit_state(devices[0]),
@@ -109,9 +117,11 @@ def prepare_machine(manifest, buffers, disk_root, references=None):
     """
     fields = {'format','version','source','configuration','cpu','pit','keyboard','ppi',
               'video','xtide','pic','dma','host_rng','roms','disks','buffers'}
+    if type(manifest) is dict and manifest.get('version') == 3:
+        fields.add('serial')
     if (type(manifest) is not dict or set(manifest) != fields
             or manifest['format'] != 'pypc.machine' or type(manifest['version']) is not int
-            or manifest['version'] not in (1, 2)
+            or manifest['version'] not in (1, 2, 3)
             or manifest['source'] != source_identity()):
         raise ValueError('machine schema or emulator source mismatch')
     if type(buffers) is not dict or set(buffers) != set(manifest['buffers']):
@@ -120,9 +130,16 @@ def prepare_machine(manifest, buffers, disk_root, references=None):
         if type(data) is not bytes or manifest['buffers'][key] != _blob(data):
             raise ValueError('machine buffer hash mismatch')
     config = manifest['configuration']
-    mailbox = manifest['version'] == 2
+    if type(config) is not dict:
+        raise ValueError('invalid machine configuration')
+    serial = manifest['version'] == 3
+    mailbox = manifest['version'] == 2 or (serial and config.get('dos_mailbox') is True)
+    uart = UART8250.load(manifest['serial']) if serial else None
     config_keys = {'ram_size','memory_mask','run_io',
                    'terminate_on_off_the_rails','bios_service'}
+    if serial:
+        config_keys.add('com1')
+        if config.get('com1') is not True: raise ValueError('invalid COM1 configuration')
     if mailbox:
         config_keys.add('dos_mailbox')
     if (type(config) is not dict or set(config) != config_keys
@@ -182,6 +199,8 @@ def prepare_machine(manifest, buffers, disk_root, references=None):
     devices = [pit, kb, ppi, video, controller]
     if mailbox:
         devices.append(dosmailbox.DOSMailbox(buffers['dos_mailbox']))
+    if serial:
+        devices.append(uart)
     motherboard = bus.Bus(config['ram_size'], devices, roms)
     cpu = i8088.i8088(motherboard, devices, config['run_io'])
     cpu._state = state; cpu._MemMask = config['memory_mask']
