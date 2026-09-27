@@ -5,6 +5,9 @@ on:
       - 'ci/export_public_inputs.py'
       - 'tests/test_export_public_inputs.py'
       - '.github/workflows/connector-public-inputs.yml'
+      - 'guest/dos_session.py'
+      - 'ci/probe_python_session.py'
+      - 'tests/test_dos_session.py'
   workflow_dispatch:
 permissions:
   contents: read
@@ -30,5 +33,45 @@ jobs:
         with:
           name: public-inputs-${{ github.sha }}
           path: ${{ runner.temp }}/public-inputs.zip
+          if-no-files-found: error
+          retention-days: 7
+
+  python-live:
+    if: github.repository == 'janrysavy/PyPC-MCP'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: janrysavy/pynasm
+          ref: fac93f89365dea609fd441275976489d532eece0
+          path: .deps/pynasm
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: janrysavy/pydasm
+          ref: 8f48899dbbfebe40e2b501c4bd2160f7dd9c5989
+          path: .deps/pydasm
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Verify standard-library session orchestration
+        run: python -S -B tests/test_dos_session.py -v
+      - name: Run fresh Python-only DOS pipeline with negative controls
+        run: python -S -B ci/probe_python_session.py --pynasm .deps/pynasm --pydasm .deps/pydasm --out ci/_build/python-live
+      - name: Retain reports and text logs only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-live-${{ github.sha }}
+          path: |
+            ci/_build/python-live/RUN.json
+            ci/_build/python-live/guest/report.json
+            ci/_build/python-live/guest/stdout.log
+            ci/_build/python-live/guest/stderr.log
           if-no-files-found: error
           retention-days: 7

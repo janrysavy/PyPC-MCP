@@ -1,0 +1,78 @@
+{
+  "scope": "DOS_PIPELINE_ONLY",
+  "status": "FINISHED",
+  "compiler_execution": "NOT_RUN",
+  "pascal_reconstruction": "NOT_RUN",
+  "code_parent": "13c7818a2fc540992484ddb45e07f5f007d1e1b7",
+  "probe_git_blob": "cbdb17a3bcc8894c6a0a163f145fdb87cec1f196",
+  "probe_sha256": "98a82ccad4320d3f7dc396893ceeff4f79c20e4db469e2ab027cd70173d0ffa0",
+  "python": "3.13.5 (main, Jul 15 2026, 20:25:40) [GCC 14.2.0]",
+  "pynasm_pin": "fac93f89365dea609fd441275976489d532eece0",
+  "pydasm_pin": "8f48899dbbfebe40e2b501c4bd2160f7dd9c5989",
+  "pynasm_source_files_verified_against_received_manifest": 14,
+  "pydasm_source_files_verified_against_received_manifest": 22,
+  "runs": [
+    {
+      "name": "python-live-01",
+      "status": "FINISHED",
+      "started": 1790552290.240743,
+      "ended": 1790552350.7454128,
+      "raw_run_sha256": "5b277143ae363e92ff0d629844c9dfe857d09cae290b32e532835187943f8823",
+      "raw_driver_log_sha256": "26dd69c95926c8817fb27126a51364f0a36a54534b718665e0b6cff88286a9fa",
+      "no_site": true,
+      "host_path": "",
+      "owned_guest_stopped": true
+    },
+    {
+      "name": "python-live-02",
+      "status": "FINISHED",
+      "started": 1790552443.6396945,
+      "ended": 1790552502.6190941,
+      "raw_run_sha256": "a028861e5b15f82f5d8d57fa2e9359e1634e4c9bc7b7b16c68dc47993b488b5f",
+      "raw_driver_log_sha256": "5405dfa161029f8cb1cbdd11e2895875bca8a0aa97fb0b1f2557eb56906a95f6",
+      "no_site": true,
+      "host_path": "",
+      "positive": {
+        "exit_code": 7,
+        "termination_type": 0,
+        "output_path": "D:\\WORK\\POS.LOG",
+        "output_bytes": 31,
+        "output_sha256": "71db980c9ea993dc42e4947868dd47b06d982ad9ff29013ddfe79a088b975864",
+        "output_base64": "UFlUSE9OX09OTFlfT0sNCkVSUk9SX0NIQU5ORUwNCg==",
+        "output_text": "PYTHON_ONLY_OK\r\nERROR_CHANNEL\r\n"
+      },
+      "wrong_exit_control": {
+        "rejected": true,
+        "actual": {
+          "exit_code": 8,
+          "termination_type": 0,
+          "output_path": "D:\\WORK\\NEG.LOG",
+          "output_bytes": 31,
+          "output_sha256": "71db980c9ea993dc42e4947868dd47b06d982ad9ff29013ddfe79a088b975864",
+          "output_base64": "UFlUSE9OX09OTFlfT0sNCkVSUk9SX0NIQU5ORUwNCg==",
+          "output_text": "PYTHON_ONLY_OK\r\nERROR_CHANNEL\r\n"
+        }
+      },
+      "file_roundtrip": {
+        "bytes": 8451,
+        "sha256": "2ea015761e83c51353450db7fc533a4563f9df0244901ccd180f1d8836177d13",
+        "rename_and_delete": true,
+        "host_mirror": true
+      },
+      "missing_program_control": {
+        "rejected": true,
+        "error": "DOS X: status=1 error=2"
+      },
+      "timeout_recovered": {
+        "exit_code": 7,
+        "termination_type": 0
+      },
+      "worker_reusable": true,
+      "owned_guest_stopped": true,
+      "vga_post_seen": true,
+      "int10_vector_hex": "9c0000c0",
+      "source_disk_sha256": "b5ed1ab673614c32f15a54ed9fe5327f4d48b2f5290d4dc9271619e9e0040ed9",
+      "tool_mount_supplied": false
+    }
+  ]
+}
