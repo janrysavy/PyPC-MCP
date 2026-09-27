@@ -2,36 +2,44 @@
 
 ## FINISHED
 
-- Connector artifact download was exercised in the receiving Python environment.
-  An existing public log artifact arrived with the same SHA-256 as GitHub metadata.
-- The bounded public-input exporter has 14 passing standard-library unit tests.
-  It permits only five fixed public repositories and immutable commits, checks
-  current public visibility, verifies raw commit/tree/blob identities, and treats
-  symlinks as literal blob content. No fetched code is executed.
-- First source-export CI run 36358206319 failed closed at HELLO.ASM: archive
-  content did not match the committed blob. The fixture attributes request CRLF.
-  Two local regression cases fail on the original exporter. All 14 tests pass
-  after adding exact-hash-checked EOL restoration and canonical Git-blob fallback.
-  Wrong canonical blob bytes still fail; no masks or relaxed equality are used.
-  Raw red/green logs and source hashes: docs/evidence/connector_export_20260928.json.gz.
-- Private repositories and licensed private tool mounts are not read or packaged.
-  No private workflow is enabled, dispatched, or re-run.
+- Public-source delivery now works through the connector artifact downloader.
+  Artifact 10945165165 from run 36358416267 arrived in the receiving Python
+  environment: 152,169,390 bytes, SHA-256
+  7775c04304718f0be8e3aeba047d5ae960ee770cdc0f328ad941bc2891cbfaf0.
+  All 8,397 files in five exact public repository pins were verified against
+  raw Git commits, reconstructed trees, blobs, sizes, SHA-256 and archive
+  membership. The 21,412,352-byte disk arrived and its blob is exactly
+  5d5eb2f6b8682a71a41a60e4ca3909742e8d2710.
+- Pinned pynasm fac93f8 freshly assembled the DOS command worker using -S/-B,
+  nasm3/-Ox and -l. Its 3,091 bytes match blob
+  4416a046a5355000d73b9ca201d8cbaae9660638. Assembler.listing independently
+  covers every output byte exactly once and the API output equals CLI output.
+- The native-only fixture defect is reproduced: the old fixture rejects a
+  configured Python argv when native NASM is absent, before scratch creation.
+  The same permanent wiring test passes with the new shared dos_session.
+  All 12 standard-library session tests pass. Existing three live-test bodies
+  are unchanged. New code validates argv, preserves exact arguments, refuses
+  output aliases and stale/partial products, and never retries a failed build.
+- Shared guest/dos_session.py imports without pytest or site packages.
+  The pytest fixture delegates to it; original boot/worker checks are retained.
+  Evidence: docs/evidence/python_session_20260928.json.gz.
+- Exporter tests: 14 passing. The first archive-filter failure and its red/green
+  correction remain in docs/evidence/connector_export_20260928.json.gz.
 
 ## WIP
 
-- The public source bundle has not yet been produced/downloaded/verified in the
-  receiving environment. The source-export CI job is a transport, not a compiler
-  or emulator validation gate. A public-only bundle is not a complete application
-  workspace.
-- tests/test_dos_live.py still unconditionally requires native NASM despite a
-  supplied NASM_COMMAND Python prefix. The native-startup gap is not fixed by
-  packaging sources. Required gate criteria remain unchanged.
+- The shared session has not yet been booted in the receiving environment.
+  Unit-test mocks and a byte-identical worker are not live DOS or compiler proof.
+- A public-only source receipt is not a complete application workspace.
+  Private source/compiler input delivery, full preparation, fresh TP6 work and
+  reconstruction validation remain separate, uncompleted requirements.
+- No private repository or licensed private mount is read by the public
+  exporter. Private Actions remain untouched; public CI remains enabled.
 
 ## NEXT
 
-Download the public-inputs artifact through the connector, verify all received
-bytes against its hash-checked Git objects and independently resolved pins,
-then reproduce/fix the native-only worker build path. Retain real pinned pynasm
-assembly/listings and live DOS evidence separately from exporter unit tests.
-Keep this PR draft until final-code checks and receiving-environment evidence
-have passed. Do not claim Pascal reconstruction from a source receipt.
+Run a fresh standard-library DOS session with the pinned Python assembler,
+retain actual execution/negative-control evidence and stop the owned guest.
+Check public CI on final code before merging. Keep this PR draft until that
+evidence and required checks pass. Do not count the receipt or worker assembly
+as Pascal reconstruction.
