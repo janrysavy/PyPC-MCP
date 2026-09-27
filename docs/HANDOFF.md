@@ -2,6 +2,7 @@
 
 COM1 register device, serial RPC and machine snapshot v3 are implemented.
 Local Windows suite: 1435 tests passed, 23 skipped, 246 subtests.
+Additional fresh-process UART queue restart and API checks passed (9 focused).
 Use pytest --capture=sys on Windows: fd capture caused invalid inherited stdin
 handles in subprocess tests.
 Live BIOS detected 03F8; SYMDEB serial R/BP/G/T/U/DB/Q worked on original Pyro,
