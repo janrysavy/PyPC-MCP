@@ -1,5 +1,10 @@
 # Handoff, 2026-09-27
 
+Snapshot archive regression fixed: UART machines produce v3 but the ZIP boundary
+accepted only v1/v2, rejecting live exports with invalid machine bundle inventory.
+The mailbox/UART test now writes, reads and restores the actual archive, retaining
+pending RX bytes. This test failed before accepting v3 at the archive boundary.
+
 COM1 register device, serial RPC and machine snapshot v3 are implemented.
 Local Windows suite: 1435 tests passed, 23 skipped, 246 subtests.
 Additional fresh-process UART queue restart and API checks passed (9 focused).
