@@ -24,6 +24,7 @@ import vncspeed
 import vga
 import videohistory
 import xtide
+import uart8250
 import virtualfat16
 from biosservice import VGAInterruptService
 from machinesnapshots import LockedDisplay, MachineSnapshots
@@ -136,6 +137,9 @@ try:
     devices.append(xtide.XTIDE(disks));
     if arguments.dos_mailbox:
         devices.append(dosmailbox.DOSMailbox())
+
+    serial = uart8250.UART8250()
+    devices.append(serial)
 
     roms = []
     roms.append(rom.Rom('roms/GLABIOS.ROM', 0xf000 * 16 + 0xe000))
@@ -460,6 +464,7 @@ try:
                            'retained_video_snapshots': 8},
                 'methods': [
                     'agent.capabilities', 'emulator.info', 'state.get_registers',
+                    'serial.status', 'serial.write', 'serial.read',
                     'state.get', 'state.set_registers', 'session.status',
                     'memory.read', 'memory.write', 'video.text', 'video.snapshot',
                     'video.snapshot.read', 'video.history.start',
@@ -475,6 +480,16 @@ try:
                     'machine.snapshot.export', 'machine.snapshot.import',
                 ],
             }
+
+        if method == 'serial.status':
+            return serial.status()
+        if method == 'serial.write':
+            data = params.get('data_base64')
+            if not isinstance(data, str) or len(data) > 5464:
+                raise ValueError('bounded base64 serial input required')
+            return serial.host_write(base64.b64decode(data, validate=True))
+        if method == 'serial.read':
+            return serial.host_read(params.get('offset'), params.get('max_bytes', 4096))
 
         if method in ('machine.snapshot.export', 'machine.snapshot.import'):
             rpc_require_paused()

@@ -55,6 +55,9 @@ Numbers may be JSON integers or strings accepted by Python `int(value, 0)`, such
 | `agent.capabilities` | Return this service's supported methods and limits. |
 | `emulator.info` | Alias of `agent.capabilities`. |
 | `state.get_registers` | Read the 8088 registers and execution state. |
+| `serial.status` | Read COM1 configuration and queue offsets. |
+| `serial.write` | Queue host bytes for COM1 receive. |
+| `serial.read` | Read COM1 output without consuming it. |
 | `state.get` | Alias of `state.get_registers`. |
 | `state.set_registers` | Guarded register write while paused. |
 | `session.status` | Report the fixed live PyPC session and execution state. |
@@ -112,6 +115,7 @@ Result:
   "limits":{"max_memory_bytes":65536,"max_keyboard_events":32,
     "max_trace_events":65536,"retained_video_snapshots":8},
   "methods":["agent.capabilities","emulator.info","state.get_registers",
+    "serial.status","serial.write","serial.read",
     "state.get","state.set_registers","session.status","memory.read",
     "memory.write","video.text","video.snapshot","video.snapshot.read",
     "video.history.start","video.history.read","video.history.stop",
@@ -821,3 +825,35 @@ leaves no published archive. Disk materialization remains a separate operation
 that may leave a partial new directory. VNC is asynchronous: an old in-flight
 frame can arrive after the RPC reply; the subsequent epoch refresh sends a full
 frame. RPC completion is not a cross-connection network delivery barrier.
+
+
+## `serial.status`
+
+COM1 is present at 3F8h, IRQ4. Returns `port`, `base`, `irq`, `divisor`, `lcr`,
+`mcr`, `rx_pending`, `tx_start`, `tx_next`, `transport`, and `wire_timing`.
+The virtual terminal is flow-controlled: queued input waits until the guest
+reads its receive register. Transmit is immediate. Divisor/parity/stop registers
+are implemented, but physical baud timing, framing/parity errors and electrical
+flow control are not simulated (`wire_timing:false`). This supports polled BIOS
+INT 14h and DOS COM1 programs; it is not a serial timing validation instrument.
+
+## `serial.write`
+
+Params: `{"data_base64":"Ug0="}`. Queues the bytes `R` and CR on COM1 and returns
+`{"accepted":2,"rx_pending":2}`. Accepts 1..4096 bytes, validates the entire input
+before mutation, and refuses a full 65536-byte input queue or UART loopback mode.
+A network timeout after submission is uncertain: do not blindly resend.
+
+## `serial.read`
+
+Params: `{"offset":0,"max_bytes":4096}`. Returns `offset`, `next_offset`, and
+`data_base64`. Reads are non-consuming and repeatable, so retrying a read is safe.
+Output retains the last 65536 bytes; an offset before `tx_start` fails explicitly.
+Counts must be 1..65536. The UART and both queues are included in machine snapshot
+version 3, including offsets and pending interrupts. RPC executes on the CPU
+thread; capture/restore does not race a separate serial socket worker.
+
+For SYMDEB, configure COM1 with MODE (or BIOS INT 14h), then enter `= COM1` at
+the console once. Send debugger commands with CR over `serial.write`; replies
+and prompts arrive through `serial.read`. `= CON` restores console control.
+No separate TCP serial listener or physical host COM port is required.

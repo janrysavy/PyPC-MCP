@@ -209,3 +209,28 @@ by that many bytes of an independent LZ4 block, without an embedded size
 B,G,R,padding order. No inter-rectangle dictionary or custom side channel
 is used. Client bounds must be checked before allocation/decompression.
 The identifier is a local convention, not an IANA registration.
+
+## COM1 and SYMDEB remote control
+
+The default machine includes COM1 at 03F8h (IRQ4). BIOS discovers the UART;
+DOS and SYMDEB use the normal guest serial driver. The host terminal uses
+`serial.status`, `serial.write` and non-consuming `serial.read` over the existing
+JSON-RPC listener. No physical host serial port or extra TCP listener is needed.
+See [the serial API contract](JSON_RPC_API.md#serialstatus).
+
+Configure COM1 first with DOS MODE or BIOS INT 14h (AX=00E3h, DX=0 for 9600 8N1).
+Start SYMDEB on a scratch copy of the target, enter `= COM1` once at its console,
+then send ASCII debugger commands followed by CR through `serial.write`.
+Replies and the `-` prompt appear through `serial.read`. `= CON` restores the
+console; `Q` terminates the debugger. Target keyboard/video remain independent.
+The parent Pyro repository provides a resumable controller and a compiled BIOS
+initializer; its README documents the complete tested workflow.
+
+This is a flow-controlled virtual terminal suitable for polled DOS debugging.
+Input queues until consumed; transmit is immediate. Hardware baud timing,
+electrical handshaking and framing/parity errors are not simulated. Register
+state, pending receive bytes, retained output and offsets survive snapshots.
+The implementation exposes basic interrupt status and loopback registers;
+real interrupt-driven serial applications need their own compatibility tests.
+Register reference: [National Semiconductor UART databook](https://bitsavers.org/components/national/_dataBooks/1987_National_Microcommunications_Elements_Databook_UARTs_NSC800_Family.pdf).
+SYMDEB reference: [Microsoft MS-DOS Encyclopedia](https://msarchive.pcjs.org/mspl13/msdos/encyclopedia/section4/).
