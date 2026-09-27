@@ -1,0 +1,34 @@
+name: Public connector input receipt
+on:
+  pull_request:
+    paths:
+      - 'ci/export_public_inputs.py'
+      - 'tests/test_export_public_inputs.py'
+      - '.github/workflows/connector-public-inputs.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  public-inputs:
+    if: github.repository == 'janrysavy/PyPC-MCP'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Test exporter without site packages or native tools
+        run: python -S -B tests/test_export_public_inputs.py -v
+      - name: Package only fixed public Git objects
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -S -B ci/export_public_inputs.py --out "${{ runner.temp }}/public-inputs.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: public-inputs-${{ github.sha }}
+          path: ${{ runner.temp }}/public-inputs.zip
+          if-no-files-found: error
+          retention-days: 7
