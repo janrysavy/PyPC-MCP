@@ -7,8 +7,9 @@ public-only delivery snapshot, not a full parent prepare or compiler proof.
 Fetch the current parent's exact recursive pins through the connector for a
 new workspace; the export snapshot must not be silently substituted for them.
 
-WIP: CI on this final export head must pass before merging. Parent integration
-must separately prove that runtime bytes remain identical to old receipts.
+FINISHED: all seven CI jobs passed on 9d8f1e9; PR63 merged as 1eea5c0.
+No runtime implementation changed. Parent pin integration separately verifies
+the complete frozen execution-input subset against retained compiler receipts.
 Private compiler inputs are never packaged by this public exporter.
 
 Previous runtime handoff follows:
