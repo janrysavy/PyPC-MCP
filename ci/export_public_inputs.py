@@ -20,7 +20,7 @@ import zipfile
 INPUTS = (
     ("janrysavy/PyPC-MCP", "tools/pypc/src/", "ec610f38ca40ba97fdf61d09bf9ff43c325e3635"),
     ("janrysavy/GLaBIOS", "tools/pypc/src/firmware/glabios/", "5cd99653737beb31ab9997edf7fdd2036ebd5bb8"),
-    ("janrysavy/pynasm", "tools/pynasm/", "80e1262f44a6a04a7dd29a8f482d1ebdd49d8987"),
+    ("janrysavy/pynasm", "tools/pynasm/", "96dc8872827f3e01e26ca2a9f2bb2115e3cd577f"),
     ("janrysavy/pydasm", "tools/pydasm/", "8f48899dbbfebe40e2b501c4bd2160f7dd9c5989"),
     ("janrysavy/dosbox-x-mcp", "tools/dosbox-x/src/", "18efceaf41b26d2b7567725c68c722035f163615"),
 )

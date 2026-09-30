@@ -1,3 +1,18 @@
+# Handoff - public input export refreshed, 2026-09-30
+
+FINISHED: PR63 exports the frozen PyPC execution revision ec610f3 and final
+merged pynasm 96dc887, plus the unchanged other public pins. Fourteen exporter
+tests pass locally. No emulator/runtime source changed. This is an explicit
+public-only delivery snapshot, not a full parent prepare or compiler proof.
+Fetch the current parent's exact recursive pins through the connector for a
+new workspace; the export snapshot must not be silently substituted for them.
+
+WIP: CI on this final export head must pass before merging. Parent integration
+must separately prove that runtime bytes remain identical to old receipts.
+Private compiler inputs are never packaged by this public exporter.
+
+Previous runtime handoff follows:
+
 # Handoff, 2026-09-27
 
 Snapshot archive regression fixed: UART machines produce v3 but the ZIP boundary
