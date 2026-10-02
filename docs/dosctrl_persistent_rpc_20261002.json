@@ -1,0 +1,10 @@
+{
+  "before": {
+    "polls": 500,
+    "connections": 500
+  },
+  "after": {
+    "polls": 500,
+    "connections": 1
+  }
+}

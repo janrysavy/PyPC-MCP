@@ -57,14 +57,18 @@ class ErrorPeer(socketserver.TCPServer):
 
 class ErrorHandler(socketserver.StreamRequestHandler):
     def handle(self):
-        request = json.loads(self.rfile.readline())
-        try:
-            result = self.server.dispatch(request['method'], request['params'])
-            reply = {'jsonrpc': '2.0', 'id': request['id'], 'result': result}
-        except Exception as exc:
-            reply = {'jsonrpc': '2.0', 'id': request['id'],
-                     'error': {'code': -32603, 'message': str(exc)}}
-        self.wfile.write(json.dumps(reply).encode('utf-8') + b'\n')
+        while True:
+            line = self.rfile.readline()
+            if not line:
+                return
+            request = json.loads(line)
+            try:
+                result = self.server.dispatch(request['method'], request['params'])
+                reply = {'jsonrpc': '2.0', 'id': request['id'], 'result': result}
+            except Exception as exc:
+                reply = {'jsonrpc': '2.0', 'id': request['id'],
+                         'error': {'code': -32603, 'message': str(exc)}}
+            self.wfile.write(json.dumps(reply).encode('utf-8') + b'\n')
 
 
 def run_with_peer(peer, *arguments):

@@ -1,3 +1,14 @@
+# Handoff - DOSCTRL persistent RPC, 2026-10-02
+
+FINISHED local controller fix: reuse one JSON-lines TCP channel for mailbox
+polling; close it on uncertainty without replaying a request. CLI and dos_session
+close explicitly. A real shared-main TP6 batch failed with Windows socket10048
+after12 compiles. Independent 500-poll probe measures500 connections before
+and1 after; docs/dosctrl_persistent_rpc_20261002.json.52 focused controller
+tests pass, including deadline and no-replay controls.
+WIP public CI/PR integration and a fresh complete parent TP6 batch. No game
+semantics/CPU/device change. Earlier compiler products remain a failed checkpoint.
+
 # Handoff - public input export refreshed, 2026-09-30
 
 FINISHED: PR63 exports the frozen PyPC execution revision ec610f3 and final
