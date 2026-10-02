@@ -234,3 +234,12 @@ The implementation exposes basic interrupt status and loopback registers;
 real interrupt-driven serial applications need their own compatibility tests.
 Register reference: [National Semiconductor UART databook](https://bitsavers.org/components/national/_dataBooks/1987_National_Microcommunications_Elements_Databook_UARTs_NSC800_Family.pdf).
 SYMDEB reference: [Microsoft MS-DOS Encyclopedia](https://msarchive.pcjs.org/mspl13/msdos/encyclopedia/section4/).
+
+DOSCTRL mailbox RPC reuses one JSON-lines TCP connection per controller instead
+of opening one per poll. This avoids Windows ephemeral-port exhaustion during
+long compiler/file-transfer sessions. Call `RPC.close()` when finished; the CLI
+and real-DOS session do this automatically. A timeout, malformed reply or wrong
+request ID closes the channel and raises without replaying the request. Keep the
+existing pending-command recovery rules: do not resubmit an uncertain EXEC/write.
+Connection-count evidence: `docs/dosctrl_persistent_rpc_20261002.json` (500 polls:
+500 connections before, one after); deadline/uncertain-write controls remain.

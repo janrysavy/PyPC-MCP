@@ -68,6 +68,9 @@ def test_rpc_recomputes_socket_timeout_after_connect_and_send(monkeypatch):
         def __exit__(self, *exc_info):
             return False
 
+        def close(self):
+            pass
+
         def readline(self, limit):
             assert socket_timeouts[-1] == pytest.approx(0.01)
             clock[0] += 0.03
@@ -79,6 +82,9 @@ def test_rpc_recomputes_socket_timeout_after_connect_and_send(monkeypatch):
 
         def __exit__(self, *exc_info):
             return False
+
+        def close(self):
+            pass
 
         def settimeout(self, timeout):
             socket_timeouts.append(timeout)

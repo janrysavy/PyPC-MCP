@@ -127,6 +127,18 @@ class RPC:
         self.port = port
         self.sequence = 0
         self.timeout = 20.0
+        self._socket = None
+        self._stream = None
+
+    def close(self) -> None:
+        stream, sock = self._stream, self._socket
+        self._stream = self._socket = None
+        try:
+            if stream is not None:
+                stream.close()
+        finally:
+            if sock is not None:
+                sock.close()
 
     def call(self, method: str, params: dict | None = None, *,
              deadline: float | None = None) -> dict:
@@ -144,21 +156,29 @@ class RPC:
         request_id = self.sequence
         request = {'jsonrpc': '2.0', 'id': request_id,
                    'method': method, 'params': params or {}}
-        with socket.create_connection(('127.0.0.1', self.port),
-                                      remaining_timeout()) as sock:
-            sock.settimeout(remaining_timeout())
-            sock.sendall(json.dumps(request).encode('utf-8') + b'\n')
-            sock.settimeout(remaining_timeout())
-            with sock.makefile('rb') as stream:
-                line = stream.readline(16 * 1024 * 1024 + 1)
-        if not line.endswith(b'\n') or len(line) > 16 * 1024 * 1024:
-            raise RuntimeError('incomplete or oversized PyPC reply')
-        reply = json.loads(line)
-        if reply.get('id') != request_id:
-            raise RuntimeError('PyPC reply id mismatch')
-        if 'error' in reply:
-            raise RuntimeError(f'{method}: {reply["error"]}')
-        return reply['result']
+        # The JSON-lines server accepts multiple requests per connection.
+        # Mailbox polling must not consume a Windows ephemeral port per RPC.
+        # On any uncertain response, discard the channel; never replay a write.
+        try:
+            if self._socket is None:
+                self._socket = socket.create_connection(
+                    ('127.0.0.1', self.port), remaining_timeout())
+                self._stream = self._socket.makefile('rb')
+            self._socket.settimeout(remaining_timeout())
+            self._socket.sendall(json.dumps(request).encode('utf-8') + b'\n')
+            self._socket.settimeout(remaining_timeout())
+            line = self._stream.readline(16 * 1024 * 1024 + 1)
+            if not line.endswith(b'\n') or len(line) > 16 * 1024 * 1024:
+                raise RuntimeError('incomplete or oversized PyPC reply')
+            reply = json.loads(line)
+            if reply.get('id') != request_id:
+                raise RuntimeError('PyPC reply id mismatch')
+            if 'error' in reply:
+                raise RuntimeError(f'{method}: {reply["error"]}')
+            return reply['result']
+        except Exception:
+            self.close()
+            raise
 
     def read(self, address: int, length: int, *,
              deadline: float | None = None) -> bytes:
@@ -538,8 +558,9 @@ def main() -> int:
     running.add_argument('tail', nargs='?', default='')
     running.add_argument('--output', help='DOS path for captured standard handles')
     args = parser.parse_args()
+    rpc = RPC(args.rpc_port)
     try:
-        worker = DOSControl(RPC(args.rpc_port), args.timeout)
+        worker = DOSControl(rpc, args.timeout)
         if args.command == 'ready':
             result = {'ready': worker.ready()}
         elif args.command == 'list':
@@ -572,6 +593,8 @@ def main() -> int:
     except (DOSCommandError, DOSClientInputError, TimeoutError,
             RuntimeError, OSError, ValueError) as exc:
         return _print_cli_failure(exc)
+    finally:
+        rpc.close()
     print(json.dumps(result, indent=2))
     if args.command in ('exec', 'collect-exec'):
         # DOS termination type is independent of AL: never report abnormal

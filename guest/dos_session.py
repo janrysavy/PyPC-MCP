@@ -253,6 +253,7 @@ def dos_session(directory):
                 except subprocess.TimeoutExpired:
                     process.kill()
                     process.wait(timeout=5)
+            live.rpc.close()
             live.save()
             assert digest(ROOT / 'harddisk.img') == boot_hash, 'tracked boot disk was modified'
             print('LIVE_DOS_REPORT=' + json.dumps(report, sort_keys=True))
