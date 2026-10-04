@@ -17,6 +17,7 @@ import unittest
 import bus
 import debugbreakpoints
 import debugtrace
+import debughardware
 import debugserver
 import i8088
 
@@ -27,12 +28,12 @@ class IdleTransport:
 
 
 class HeadlessMachine:
-    def __init__(self, main_path=None):
+    def __init__(self, main_path=None, devices=None):
         main_path = main_path or Path(__file__).resolve().parents[1] / 'main.py'
         tree = ast.parse(main_path.read_text(), filename=str(main_path))
         body = next(node.body for node in tree.body if isinstance(node, ast.Try))
         self.memory = bus.Bus(1 << 20, [], [])
-        self.cpu = i8088.i8088(self.memory, [], False)
+        self.cpu = i8088.i8088(self.memory, [] if devices is None else devices, False)
         self.state = self.cpu.GetState()
         for name, value in dict(CS=0x1000, DS=0x2000, ES=0x3000,
                                 SS=0x2000, IP=0x100, SP=0x9000, Flags=2).items():
@@ -41,6 +42,7 @@ class HeadlessMachine:
             b=self.memory, p=self.cpu, state=self.state,
             breakpoints=debugbreakpoints.BreakpointManager(),
             trace=debugtrace.TraceRecorder(),
+            hardware_trace=debughardware.HardwareTraceRecorder(),
             debug=IdleTransport(), base64=base64, hashlib=hashlib,
             time=time, p_cycles=0, p_time=time.time(),
         )

@@ -1047,6 +1047,10 @@ try:
             rpc_last_stop('emulated_time_limit', **details)
         control['skip_breakpoint_id'] = None
         if trace_before is not None:
+            interrupt = p.GetLastInterruptDispatch()
+            if interrupt is not None:
+                trace_before['kind'] = 'interrupt_dispatch'
+                trace_before['interrupt'] = interrupt
             trace_before['clock_after'] = state.GetClock()
             trace_before['clock_delta'] = (
                 trace_before['clock_after'] - trace_before['clock_before'])

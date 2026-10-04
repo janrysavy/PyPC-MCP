@@ -672,10 +672,18 @@ Requires a paused emulator. Starts a bounded trace for `instruction_count` steps
 ```
 
 Supported detail levels are `csip`, `short`, `normal`, and `long`. Events include
-`kind` (`instruction` or `hlt`), the segmented and physical instruction address,
+`kind` (`instruction`, `hlt`, or `interrupt_dispatch`), the segmented and physical instruction address,
 eight raw opcode bytes, and the emulated clock interval. HLT events represent
 clock advancement while the CPU is waiting for an interrupt; their opcode bytes
-are context, not an executed instruction. All levels except `csip` include the
+are context, not an executed instruction. A standalone accepted PIC interrupt
+is `interrupt_dispatch` with `interrupt: {source: "pic", irq: 0, vector: 8}`
+(numbers reflect the accepted line and configured vector). Its address/opcode
+identify the interrupted context, including HLT wake-up; that opcode did not
+execute in this event. The event retains interrupt stack/vector memory effects
+and its clock cost. Software INT and post-instruction TF traps stay `instruction`
+events because an opcode executed. The historical `instruction_count` budget
+counts CPU Tick boundaries, including dispatch and HLT; it is not a count of
+executed opcodes. All levels except `csip` include the
 register snapshot before the event; `normal` and `long` also include the snapshot
 after it. Every event also has ordered `effects`. Data-memory effects are
 `memory_read` or `memory_write` with a linear address, byte count, and base64
