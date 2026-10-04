@@ -9,6 +9,8 @@ Six tests pass on CPython and PyPy, including fresh-process CPU I/O continuation
 Default launches and version1/2/3 layouts omit this optional hardware.
 The charge model follows MartyPC; physical XT timing parity is not established.
 WIP: independent review, final-head public CI, wire/Pyro controls and integration.
+Follow-up: inventory-order regression fixed;22 RPC/documentation tests plus13
+subtests pass. No device behavior changed.
 
 Previous disk fix is integrated at1b97ac1; its old WIP note below is historical.
 
