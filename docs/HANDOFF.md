@@ -5,7 +5,10 @@ Path.is_junction (PyPy Windows lacks stat.IO_REPARSE_TAG_MOUNT_POINT).
 27 disk tests pass on CPython; four new stdlib tests pass on Windows PyPy,
 including real junction/symlink refusal and exact ordinary-host roundtrip.
 Fresh-process disk test supplies DEVNULL stdin for Windows runner handles.
-WIP: review, public CI/PR integration and fresh game snapshot/restart proof.
+Independent review found no runtime defect; its evidence gap is closed by
+removing the constant in the real junction test too and retaining both logs
+under tests/evidence/diskcodec-links-*-20261004.txt. 27 + 4 tests pass again.
+WIP: final-head public CI/PR integration and fresh game snapshot/restart proof.
 No CPU/game semantics or snapshot format change.
 
 # Handoff - DOSCTRL persistent RPC, 2026-10-02

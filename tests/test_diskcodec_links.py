@@ -75,8 +75,10 @@ class SnapshotLinkTests(unittest.TestCase):
                        env=env, check=True, capture_output=True,
                        stdin=subprocess.DEVNULL)
         self.addCleanup(link.rmdir)
-        with self.assertRaisesRegex(ValueError, 'linked path'):
-            dump_disk_state(self.disk)
+        with patch.dict(stat.__dict__):
+            stat.__dict__.pop('IO_REPARSE_TAG_MOUNT_POINT', None)
+            with self.assertRaisesRegex(ValueError, 'linked path'):
+                dump_disk_state(self.disk)
         self.assertEqual((target / 'SECRET.BIN').read_bytes(), b'outside the mount')
 
 

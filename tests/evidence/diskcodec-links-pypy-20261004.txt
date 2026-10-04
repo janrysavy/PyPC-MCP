@@ -1,0 +1,9 @@
+test_actual_symlink_refused (__main__.SnapshotLinkTests.test_actual_symlink_refused) ... ok
+test_actual_windows_junction_refused (__main__.SnapshotLinkTests.test_actual_windows_junction_refused) ... ok
+test_mount_point_tag_refused_without_stat_constant (__main__.SnapshotLinkTests.test_mount_point_tag_refused_without_stat_constant) ... ok
+test_roundtrip_without_path_junction_or_stat_constant (__main__.SnapshotLinkTests.test_roundtrip_without_path_junction_or_stat_constant) ... ok
+
+----------------------------------------------------------------------
+Ran 4 tests in 0.387s
+
+OK
