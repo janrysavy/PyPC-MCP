@@ -1,3 +1,13 @@
+# Handoff - PyPy Windows snapshot paths, 2026-10-04
+
+FINISHED local disk snapshot fix: read unfollowed link metadata without
+Path.is_junction (PyPy Windows lacks stat.IO_REPARSE_TAG_MOUNT_POINT).
+27 disk tests pass on CPython; four new stdlib tests pass on Windows PyPy,
+including real junction/symlink refusal and exact ordinary-host roundtrip.
+Fresh-process disk test supplies DEVNULL stdin for Windows runner handles.
+WIP: review, public CI/PR integration and fresh game snapshot/restart proof.
+No CPU/game semantics or snapshot format change.
+
 # Handoff - DOSCTRL persistent RPC, 2026-10-02
 
 FINISHED local controller fix: reuse one JSON-lines TCP channel for mailbox
