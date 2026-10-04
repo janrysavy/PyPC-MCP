@@ -18,10 +18,10 @@ import urllib.request
 import zipfile
 
 INPUTS = (
-    ("janrysavy/PyPC-MCP", "tools/pypc/src/", "ec610f38ca40ba97fdf61d09bf9ff43c325e3635"),
+    ("janrysavy/PyPC-MCP", "tools/pypc/src/", "1bc3c82fb4e45291ee899391cdbc6780448844dc"),
     ("janrysavy/GLaBIOS", "tools/pypc/src/firmware/glabios/", "5cd99653737beb31ab9997edf7fdd2036ebd5bb8"),
-    ("janrysavy/pynasm", "tools/pynasm/", "96dc8872827f3e01e26ca2a9f2bb2115e3cd577f"),
-    ("janrysavy/pydasm", "tools/pydasm/", "8f48899dbbfebe40e2b501c4bd2160f7dd9c5989"),
+    ("janrysavy/pynasm", "tools/pynasm/", "aec5dbf2b153823dc3cbaf020cc91a88cba03d87"),
+    ("janrysavy/pydasm", "tools/pydasm/", "f87a7b41e64cc06be720ab32f4689f0d3802100b"),
     ("janrysavy/dosbox-x-mcp", "tools/dosbox-x/src/", "18efceaf41b26d2b7567725c68c722035f163615"),
 )
 ALLOWED = frozenset(row[0] for row in INPUTS)
