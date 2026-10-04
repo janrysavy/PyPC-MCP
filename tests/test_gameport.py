@@ -157,6 +157,50 @@ print(json.dumps(dict(samples=samples,manifest=manifest,buffers={k:hashlib.sha25
                 self.assertEqual(fresh['manifest'], expected_manifest)
                 self.assertEqual(fresh['buffers'], {k:hashlib.sha256(v).hexdigest() for k,v in expected_buffers.items()})
 
+    def test_live_install_preserves_input_reference_and_refuses_card_mismatch(self):
+        import bus, i8088, i8253, i8255, keyboard, vga, xtide
+        import threading
+        from types import SimpleNamespace
+        from machinecodec import capture_machine
+        from machinesnapshots import LockedDisplay, MachineSnapshots
+
+        def machine(attached):
+            kb = keyboard.Keyboard()
+            devices = [i8253.i8253(), kb, i8255.i8255(kb), vga.VGA(False), xtide.XTIDE([])]
+            port = GamePort() if attached else None
+            if port is not None:
+                devices.append(port)
+            cpu = i8088.i8088(bus.Bus(1 << 20, devices, []), devices, True)
+            snapshots = MachineSnapshots(cpu, LockedDisplay(devices[3]),
+                                          SimpleNamespace(_frame_lock=threading.RLock()))
+            return cpu, port, snapshots
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            live, device, snapshots = machine(True)
+            event = dict(joystick=0, x=-1, y=1, buttons=[True, False])
+            device.set_input(event)
+            device.IO_Write(0x201, 0)
+            device.Tick(200, 200)
+            before = capture_machine(live)
+            saved = root / 'joystick.zip'
+            digest = snapshots.export(saved)
+            device.set_input(dict(event, x=0, y=0, buttons=[False, False]))
+            snapshots.restore(saved, root / 'restored', digest)
+            self.assertIs(live._devices[5], device)
+            self.assertEqual(capture_machine(live), before)
+            self.assertEqual(live._io.In(0x201, False), device.IO_Read(0x201))
+            absent, _, no_card = machine(False)
+            empty = root / 'absent.zip'
+            no_card.export(empty)
+            for target, bundle in ((snapshots, empty), (no_card, saved)):
+                original = capture_machine(target.cpu)
+                refused = root / ('refused-' + bundle.stem)
+                with self.assertRaisesRegex(ValueError, 'game port configuration'):
+                    target.restore(bundle, refused)
+                self.assertFalse(refused.exists())
+                self.assertEqual(capture_machine(target.cpu), original)
+
 
 if __name__ == '__main__':
     unittest.main()

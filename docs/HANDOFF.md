@@ -11,6 +11,9 @@ The charge model follows MartyPC; physical XT timing parity is not established.
 WIP: independent review, final-head public CI, wire/Pyro controls and integration.
 Follow-up: inventory-order regression fixed;22 RPC/documentation tests plus13
 subtests pass. No device behavior changed.
+Restore boundary: seventh test verifies production installation preserves the
+input device reference and refuses both card-presence mismatches before disk
+creation/live mutation. Seven tests pass on CPython and PyPy.
 
 Previous disk fix is integrated at1b97ac1; its old WIP note below is historical.
 
