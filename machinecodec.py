@@ -9,6 +9,7 @@ from pathlib import Path
 
 import bus
 import dosmailbox
+from gameport import GamePort
 import i8088
 import i8253
 import i8255
@@ -54,6 +55,9 @@ def capture_machine(cpu, *, bios_service=False, disk_mode='auto'):
     uart_index = 6 if mailbox else 5
     serial = type(devices[uart_index]) is UART8250
     dma_index = uart_index + int(serial)
+    joystick = type(devices[dma_index]) is GamePort
+    joystick_index = dma_index
+    dma_index += int(joystick)
     pic_index = dma_index + 1
     if (len(devices) != pic_index + 1 or type(devices[0]) is not i8253.i8253
             or type(devices[1]) is not keyboard.Keyboard
@@ -98,7 +102,10 @@ def capture_machine(cpu, *, bios_service=False, disk_mode='auto'):
     extra = {'serial': devices[uart_index].dump()} if serial else {}
     if serial:
         configuration['com1'] = True
-    return {**extra, 'format':'pypc.machine', 'version':3 if serial else (2 if mailbox else 1),
+    if joystick:
+        configuration.update(game_port=True, com1=serial)
+        extra['game_port'] = devices[joystick_index].dump()
+    return {**extra, 'format':'pypc.machine', 'version':4 if joystick else (3 if serial else (2 if mailbox else 1)),
             'source':source_identity(),
             'configuration':configuration,
             'cpu':dump_cpu_state(cpu._state), 'pit':dump_pit_state(devices[0]),
@@ -117,11 +124,16 @@ def prepare_machine(manifest, buffers, disk_root, references=None):
     """
     fields = {'format','version','source','configuration','cpu','pit','keyboard','ppi',
               'video','xtide','pic','dma','host_rng','roms','disks','buffers'}
-    if type(manifest) is dict and manifest.get('version') == 3:
-        fields.add('serial')
+    if type(manifest) is dict:
+        version = manifest.get('version')
+        config = manifest.get('configuration')
+        if version == 3 or (version == 4 and type(config) is dict and config.get('com1') is True):
+            fields.add('serial')
+        if version == 4:
+            fields.add('game_port')
     if (type(manifest) is not dict or set(manifest) != fields
             or manifest['format'] != 'pypc.machine' or type(manifest['version']) is not int
-            or manifest['version'] not in (1, 2, 3)
+            or manifest['version'] not in (1, 2, 3, 4)
             or manifest['source'] != source_identity()):
         raise ValueError('machine schema or emulator source mismatch')
     if type(buffers) is not dict or set(buffers) != set(manifest['buffers']):
@@ -132,14 +144,20 @@ def prepare_machine(manifest, buffers, disk_root, references=None):
     config = manifest['configuration']
     if type(config) is not dict:
         raise ValueError('invalid machine configuration')
-    serial = manifest['version'] == 3
-    mailbox = manifest['version'] == 2 or (serial and config.get('dos_mailbox') is True)
+    joystick = manifest['version'] == 4
+    serial = manifest['version'] == 3 or (joystick and config.get('com1') is True)
+    mailbox = manifest['version'] == 2 or (manifest['version'] >= 3 and config.get('dos_mailbox') is True)
     uart = UART8250.load(manifest['serial']) if serial else None
+    game_port = GamePort.load(manifest['game_port']) if joystick else None
     config_keys = {'ram_size','memory_mask','run_io',
                    'terminate_on_off_the_rails','bios_service'}
     if serial:
         config_keys.add('com1')
         if config.get('com1') is not True: raise ValueError('invalid COM1 configuration')
+    if joystick:
+        config_keys.update(('game_port', 'com1'))
+        if config.get('game_port') is not True or type(config.get('com1')) is not bool:
+            raise ValueError('invalid game port configuration')
     if mailbox:
         config_keys.add('dos_mailbox')
     if (type(config) is not dict or set(config) != config_keys
@@ -201,6 +219,8 @@ def prepare_machine(manifest, buffers, disk_root, references=None):
         devices.append(dosmailbox.DOSMailbox(buffers['dos_mailbox']))
     if serial:
         devices.append(uart)
+    if joystick:
+        devices.append(game_port)
     motherboard = bus.Bus(config['ram_size'], devices, roms)
     cpu = i8088.i8088(motherboard, devices, config['run_io'])
     cpu._state = state; cpu._MemMask = config['memory_mask']

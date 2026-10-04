@@ -74,6 +74,8 @@ Numbers may be JSON integers or strings accepted by Python `int(value, 0)`, such
 | `input.keyboard` | Queue XT keyboard make/break scan codes. |
 | `keyboard.scancode` | Single-event alias of `input.keyboard`. |
 | `input.state` | Read currently pressed XT scan codes. |
+| `input.joystick` | Set the optional game-port axes/buttons at a paused boundary. |
+| `input.joystick.state` | Read configured joystick positions/buttons; empty if absent. |
 | `execution.pause` | Stop at the next instruction boundary. |
 | `execution.continue` | Resume execution and return an operation id. |
 | `execution.go` | Alias of `execution.continue`. |
@@ -120,6 +122,7 @@ Result:
     "memory.write","video.text","video.snapshot","video.snapshot.read",
     "video.history.start","video.history.read","video.history.stop",
     "io.read","io.write","input.keyboard","keyboard.scancode","input.state",
+    "input.joystick","input.joystick.state",
     "execution.pause","execution.continue","execution.go",
     "execution.run_until","execution.wait","execution.step",
     "breakpoints.create","breakpoints.list","breakpoints.delete",
@@ -493,7 +496,8 @@ the listed order. Result:
 ## `input.state`
 
 No parameters. Result reports raw XT make codes currently held according to the
-keyboard device, plus an empty joystick list because PyPC has no joystick device:
+keyboard device, plus configured joystick positions/buttons. Without `--game-port`,
+the joystick list is empty:
 
 ```json
 {
@@ -505,6 +509,28 @@ keyboard device, plus an empty joystick list because PyPC has no joystick device
 
 The implementation returns scan-code integers; the fork’s named-key layer is not
 portable to this XT-only keyboard model.
+
+## `input.joystick` and `input.joystick.state`
+
+Launch with `--game-port` to attach two analog two-button sticks at I/O port201h.
+Setting input requires a paused machine; reading state does not. A complete update is:
+
+```json
+{"joystick":0,"x":-1,"y":1,"buttons":[true,false]}
+```
+
+Indices are 0 and 1. Axes are finite numbers from -1 to +1: left/up to right/down.
+Buttons are exactly two booleans. All fields are validated before mutation.
+Both methods return `joysticks` (two records in the above format) and
+`state_revision`; setting input increments the revision without advancing the CPU.
+An absent card rejects writes and returns an empty list for reads.
+
+The device follows MartyPC's configured 100-kilohm potentiometer model:
+25.2 + 550 * (axis + 1) microseconds per charge. PyPC samples expiration at its
+instruction/device boundaries using 4.77 CPU cycles per microsecond. Buttons
+are active low. OUT201h starts all four one-shots; movement does not rearm an
+expired axis. This is emulator-model compatibility, not physical XT timing proof.
+Default launches omit the card and retain their existing hardware configuration.
 
 ## `keyboard.scancode`
 
@@ -763,8 +789,8 @@ API, classified for this PyPC transport:
 | `state.get_registers` | Implemented | Native 8088 state is directly available. |
 | `state.set_registers` | Implemented | Guarded 16-bit register mutation. |
 | `input.keyboard` | Implemented | XT scan-code batch injection. |
-| `input.joystick` | Deferred | No PyPC joystick device. |
-| `input.state` | Implemented (XT subset) | Raw pressed scan codes; no named-key/joystick layer. |
+| `input.joystick` / `input.joystick.state` | Implemented (optional game port) | Paused analog input and read-only state. |
+| `input.state` | Implemented | Raw pressed scan codes and configured joystick state; no named-key layer. |
 | `dos.memory_map` | Deferred | No DOS loader/MCB metadata model. |
 | `checkpoints.create/list/restore/delete` | Deferred | No complete machine snapshot serializer. |
 | `video.snapshot` | Implemented (CGA and VGA text/12h/13h) | Immutable raw VRAM/text snapshot; VGA also includes plane-2 fonts and lossless graphics VRAM for modes 12h/13h. |
@@ -807,6 +833,11 @@ When `--dos-mailbox` is enabled, a version-2 machine bundle embeds its 8192-byte
 window. Import requires the same mailbox setting as the live machine and
 validates the window hash before installing any guest state. Without the option,
 version-1 bundle layout is unchanged.
+
+With `--game-port`, version-4 bundles also retain axes, buttons and all four
+in-flight one-shots, with or without the optional UART. Import requires the
+same game-port presence as the live machine before disk/state installation.
+Existing version-1/2/3 layouts are unchanged when the card is absent.
 
 Debugger breakpoints remain configured. Pending operations, instruction and
 hardware trace journals and retained video snapshots are cleared. Revision and

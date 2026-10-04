@@ -1,3 +1,17 @@
+# Handoff - optional joystick control, 2026-10-04
+
+FINISHED local implementation: --game-port attaches two analog two-button sticks
+at201h; input.joystick/state use the shared MartyPC axes/buttons schema.
+Paused writes are atomic, do not advance clocks, and active-low button/charge
+state survives actual version4 ZIP restoration with and without UART.
+Six tests pass on CPython and PyPy, including fresh-process CPU I/O continuation;
+44 related codec/archive/install/RPC tests plus15 subtests pass on CPython.
+Default launches and version1/2/3 layouts omit this optional hardware.
+The charge model follows MartyPC; physical XT timing parity is not established.
+WIP: independent review, final-head public CI, wire/Pyro controls and integration.
+
+Previous disk fix is integrated at1b97ac1; its old WIP note below is historical.
+
 # Handoff - PyPy Windows snapshot paths, 2026-10-04
 
 FINISHED local disk snapshot fix: read unfollowed link metadata without

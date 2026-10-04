@@ -11,6 +11,7 @@ import debugbreakpoints
 import debughardware
 import debugtrace
 import dosmailbox
+import gameport
 import i8088
 import i8253
 import i8255
@@ -42,6 +43,8 @@ def ParseArguments():
         help='show emulated/wall speed at top right over VNC pixels')
     parser.add_argument('--dos-mailbox', action='store_true',
         help='reserve D8000h-D9FFFh for the DOS control worker')
+    parser.add_argument('--game-port', action='store_true',
+        help='attach two analog two-button joysticks at port201h')
     for name, default in (('rpc', 2301), ('telnet', 2300), ('vnc', 5902)):
         parser.add_argument(f'--{name}-port', type=int, default=default,
                             help=f'{name} listener port (default: {default})')
@@ -140,6 +143,9 @@ try:
 
     serial = uart8250.UART8250()
     devices.append(serial)
+    joystick = gameport.GamePort() if arguments.game_port else None
+    if joystick is not None:
+        devices.append(joystick)
 
     roms = []
     roms.append(rom.Rom('roms/GLABIOS.ROM', 0xf000 * 16 + 0xe000))
@@ -470,6 +476,7 @@ try:
                     'video.snapshot.read', 'video.history.start',
                     'video.history.read', 'video.history.stop',
                     'io.read', 'io.write', 'input.keyboard',
+                    'input.joystick', 'input.joystick.state',
                     'keyboard.scancode', 'input.state', 'execution.pause',
                     'execution.continue', 'execution.go', 'execution.run_until',
                     'execution.wait', 'execution.step',
@@ -744,8 +751,19 @@ try:
         if method == 'input.state':
             return {
                 'keyboard': {'pressed_scancodes': kb.GetPressedScancodes()},
-                'joysticks': [], 'state_revision': control['revision'],
+                'joysticks': joystick.input_state() if joystick else [],
+                'state_revision': control['revision'],
             }
+
+        if method in ('input.joystick', 'input.joystick.state'):
+            if method == 'input.joystick':
+                rpc_require_paused()
+                if joystick is None:
+                    raise ValueError('no game port configured')
+                joystick.set_input(params)
+                control['revision'] += 1
+            return {'joysticks': joystick.input_state() if joystick else [],
+                    'state_revision': control['revision']}
 
         if method == 'breakpoints.create':
             result = breakpoints.create(params)

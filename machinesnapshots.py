@@ -3,6 +3,7 @@ import threading
 
 from dosmailbox import DOSMailbox
 from uart8250 import UART8250
+from gameport import GamePort
 
 from checkpointbundle import read_bundle, write_bundle
 from machinecodec import capture_machine, prepare_machine
@@ -50,7 +51,7 @@ class MachineSnapshots:
     def restore(self, path, disk_root, sha256=None, references=None):
         with self.vnc._frame_lock, self.display.lock, self.cpu._devices[1]._state_lock:
             saved = read_bundle(path, sha256)
-            saved_has_mailbox = (saved[0].get('version') in (2, 3) and
+            saved_has_mailbox = (saved[0].get('version') in (2, 3, 4) and
                                  saved[0].get('configuration', {}).get('dos_mailbox') is True)
             live_has_mailbox = any(type(device) is DOSMailbox for device in self.cpu._devices)
             if saved_has_mailbox != live_has_mailbox:
@@ -59,6 +60,10 @@ class MachineSnapshots:
             live_has_serial = any(type(device) is UART8250 for device in self.cpu._devices)
             if saved_has_serial != live_has_serial:
                 raise ValueError('COM1 configuration does not match live machine')
+            saved_has_joystick = saved[0].get('configuration', {}).get('game_port') is True
+            live_has_joystick = any(type(device) is GamePort for device in self.cpu._devices)
+            if saved_has_joystick != live_has_joystick:
+                raise ValueError('game port configuration does not match live machine')
             prepared, rng = prepare_machine(*saved, disk_root, references)
             install_machine(self.cpu, prepared, rng)
             # A restored numeric guest frame version can equal a client's old

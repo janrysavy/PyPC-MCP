@@ -5,7 +5,8 @@
 >
 > **Top methods:** `agent.capabilities`; `emulator.info`; `session.status`;
 > `execution.pause/continue/go/step`; register and memory access; keyboard input
-> and state; I/O reads; CGA/VGA text, attributes, fonts, and video snapshots. See the
+> and state; I/O reads; CGA/VGA text, attributes, fonts, and video snapshots.
+> Optional `--game-port` adds analog two-button input through `input.joystick`. See the
 > [complete JSON-RPC API specification](JSON_RPC_API.md) for exact request,
 > response, state, safety, and framing semantics.
 >
