@@ -3,8 +3,12 @@
 FINISHED local fix: standalone accepted PIC entry is interrupt_dispatch with
 actual IRQ/vector, not execution of interrupted opcode. HLT wake-up is covered;
 software INT/TF remain instruction events. Trace budgets still count CPU ticks.
-CPU/device cycle semantics unchanged. Six new tests (24 subtests) pass on
-CPython/PyPy; full Windows suite1482 passed,23 skipped,298 subtests passed.
+CPU/device cycle semantics unchanged. Seven new tests (24 subtests) pass on
+CPython/PyPy;63 related tests pass. The preceding full Windows run reports
+1482 passed,23 skipped,298 subtests passed. Focused review found no runtime
+defect; its HLT/device evidence gaps are closed by executing F4, a real PIT
+edge while masked, unmask/wake and once-per-Tick device-clock assertions.
+The follow-up review/CI are pending on this test-only refinement.
 The earlier CRT live receipt independently reproduced this defect; a fresh
 original Pyro/PyPy run again stores calibration164 and now labels IRQ entry.
 Live wire proof awaits parent integration. Guest/viewer closed.

@@ -6,6 +6,7 @@ harness. Synthetic IRQ sources register a line; no instruction/trace logic is mo
 import unittest
 
 import device
+from i8253 import i8253
 from test_execution_rpc import HeadlessMachine
 
 
@@ -23,6 +24,17 @@ class IRQSource(device.Device):
     def WriteByte(self, offset, value): pass
     def ReadByte(self, offset): return 0
     def Ticks(self): return False
+
+
+class ClockRecorder(IRQSource):
+    def __init__(self):
+        super().__init__(-1)
+        self.calls = []
+
+    def Ticks(self): return True
+    def Tick(self, cycles, clock):
+        self.calls.append((cycles, clock))
+        return False
 
 
 def machine(irq=0, halted=False):
@@ -43,6 +55,48 @@ def step(m):
 
 
 class InterruptDispatchTraceTests(unittest.TestCase):
+    def test_pit_generated_irq_wakes_executed_hlt_and_clocks_devices_once(self):
+        pit, recorder = i8253(), ClockRecorder()
+        m = HeadlessMachine(devices=[pit, recorder])
+        m.load(bytes.fromhex('f440'))  # Execute HLT; then INC AX after IRQ/IRET.
+        m.load(bytes.fromhex('cf'), offset=0x200)
+        m.cpu.WriteMemWord(0, 32, 0x200)
+        m.cpu.WriteMemWord(0, 34, 0x1000)
+        m.state.SetFlags(0x202)
+        pit.IO_Write(0x43, 0x34)  # Channel0 periodic mode2, one PIT tick.
+        pit.IO_Write(0x40, 1)
+        pit.IO_Write(0x40, 0)
+        pic = m.cpu._io.GetPIC()  # Initially masked; no direct IRQ request.
+        m.rpc('hardware.trace.start')
+        m.rpc('trace.start', instruction_count=6)
+        step(m)  # Actual F4 sets HLT, IP now101.
+        self.assertTrue(m.state._in_hlt)
+        self.assertEqual(m.state.GetIP(), 0x101)
+        step(m)  # Normal PIT clocking raises IRQ0 while masked.
+        step(m)  # Still halted, no accepted interrupt.
+        self.assertTrue(m.state._in_hlt)
+        self.assertEqual(pic.GetPendingInterrupt(), 255)
+        self.assertEqual(pic._irr, 1)
+        pic.IO_Write(0x21, 0)
+        before = m.state.GetAX()
+        step(m)  # Wake and dispatch; INC has not executed.
+        self.assertFalse(m.state._in_hlt)
+        self.assertEqual(m.state.GetAX(), before)
+        self.assertEqual(m.state.GetIP(), 0x200)
+        self.assertEqual(m.cpu.ReadMemWord(0x2000, 0x8ffa), 0x101)
+        self.assertEqual(recorder.calls, [(2, 2), (2, 4), (2, 6), (60, 66)])
+        self.assertEqual((pit._timers[0].counter_cur, pit._clock), (1, 2))
+        self.assertEqual((pic._isr, pic._irr), (1, 1))  # New PIT edge during entry.
+        events = m.rpc('trace.read')['events']
+        self.assertEqual([e['kind'] for e in events], ['instruction', 'hlt', 'hlt', 'interrupt_dispatch'])
+        self.assertTrue(events[0]['opcode_hex'].startswith('f440'))
+        self.assertTrue(events[3]['opcode_hex'].startswith('40'))
+        hw = m.rpc('hardware.trace.read')['events']
+        self.assertTrue(any(e['kind'] == 'irq_raise' and e['emulated_time'] == 2 for e in hw))
+        for _ in range(2): step(m)
+        self.assertEqual(m.state.GetAX(), (before + 1) & 0xffff)
+        self.assertEqual([e['kind'] for e in m.rpc('trace.read')['events']][-2:], ['instruction', 'instruction'])
+
     def test_all_pic_lines_and_hlt_wake_have_dispatch_not_opcode(self):
         for irq in range(8):
             for halted in (False, True):
