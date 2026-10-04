@@ -1,3 +1,15 @@
+# Handoff - fixed public input snapshot, 2026-10-04
+
+FINISHED source-only change: refresh three public exporter pins for the current
+native-source experiment. PyPC 1bc3c82, pynasm aec5dbf, pydasm f87a7b4; unchanged
+GLaBIOS 5cd9965 and DOSBox-X 18efcea. Exporter logic, allowlist and public-visibility
+refusals are unchanged. No private repository or compiler payload is requested.
+WIP exporter tests, artifact creation and receiving-environment verification.
+This is public input delivery only, not full parent prepare or TP6 execution.
+NEXT: run the existing exporter CI, download its artifact through the connector,
+and verify raw commits, recursive trees, blobs, sizes, hashes and membership.
+No emulator changes, compiler claims, workflow changes or private Actions changes.
+
 # Handoff - DOSCTRL persistent RPC, 2026-10-02
 
 FINISHED local controller fix: reuse one JSON-lines TCP channel for mailbox
