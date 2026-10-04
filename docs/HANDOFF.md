@@ -1,4 +1,17 @@
-# Handoff - optional joystick control, 2026-10-04
+# Handoff - CPU trace interrupt dispatch, 2026-10-04
+
+FINISHED local fix: standalone accepted PIC entry is interrupt_dispatch with
+actual IRQ/vector, not execution of interrupted opcode. HLT wake-up is covered;
+software INT/TF remain instruction events. Trace budgets still count CPU ticks.
+CPU/device cycle semantics unchanged. Six new tests (24 subtests) pass on
+CPython/PyPy; full Windows suite1482 passed,23 skipped,298 subtests passed.
+The earlier CRT live receipt independently reproduced this defect; a fresh
+original Pyro/PyPy run again stores calibration164 and now labels IRQ entry.
+Live wire proof awaits parent integration. Guest/viewer closed.
+WIP: focused review, final-head CI/PR and parent pin integration.
+General PIT phase prediction and physical XT cycle accuracy remain unproven.
+
+# Historical handoff - optional joystick control, 2026-10-04
 
 FINISHED local implementation: --game-port attaches two analog two-button sticks
 at201h; input.joystick/state use the shared MartyPC axes/buttons schema.

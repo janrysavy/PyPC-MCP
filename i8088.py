@@ -21,6 +21,7 @@ class i8088:
         self._interrupt_service_hook = None
         self._hardware_trace_hook = None
         self._instruction_address = None
+        self._last_interrupt_dispatch = None
 
         self._state: state8088.State8088 = state8088.State8088()
 
@@ -684,6 +685,7 @@ class i8088:
 
     # cycle counts from https://zsmith.co/intel_i.php
     def Tick(self) -> int:
+        self._last_interrupt_dispatch = None
         cycle_count = 0  # cycles used for an instruction
         back_from_trace = False
         if (self._memory_access_hook is not None or
@@ -705,7 +707,9 @@ class i8088:
                         continue
 
                     self._state._in_hlt = False
+                    vector = irq + self._io.GetPIC().GetInterruptOffset()
                     self.InvokeInterrupt(self._state._ip, irq, True)
+                    self._last_interrupt_dispatch = {'source': 'pic', 'irq': irq, 'vector': vector}
                     cycle_count += 60
                     self._state._clock += cycle_count
                     self._io.Tick(cycle_count, self._state._clock)
@@ -833,9 +837,19 @@ class i8088:
         return cycle_count
 
     def Reset(self):
+        self._last_interrupt_dispatch = None
         self._state.Reset()
         self._state._cs = 0xf000
         self._state._ip = 0xfff0
+
+    def GetLastInterruptDispatch(self):
+        """Standalone PIC dispatch in the last Tick, not an executed opcode.
+
+        Software INT and post-instruction TF traps remain instruction events.
+        Diagnostic metadata is cleared on every Tick/Reset; it is not CPU state.
+        """
+        return (None if self._last_interrupt_dispatch is None
+                else dict(self._last_interrupt_dispatch))
 
     def GetStopReason(self) -> str:
         rc = self._stop_reason
