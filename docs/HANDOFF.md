@@ -8,7 +8,10 @@ Six tests pass on CPython and PyPy, including fresh-process CPU I/O continuation
 44 related codec/archive/install/RPC tests plus15 subtests pass on CPython.
 Default launches and version1/2/3 layouts omit this optional hardware.
 The charge model follows MartyPC; physical XT timing parity is not established.
-WIP: independent review, final-head public CI, wire/Pyro controls and integration.
+FINISHED: focused review addressed; actual TCP guest OUT/IN201h and live v4
+export/install during a charge pass under PyPy in the parent workspace.
+Pyro calibration/gameplay and physical XT timing remain WIP. Final-head CI
+and linear integration are tracked by PR67; parent records the integrated pin.
 Follow-up: inventory-order regression fixed;22 RPC/documentation tests plus13
 subtests pass. No device behavior changed.
 Restore boundary: seventh test verifies production installation preserves the
