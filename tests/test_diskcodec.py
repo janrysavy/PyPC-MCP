@@ -125,5 +125,6 @@ assert m==p['manifest'] and {k:v.hex() for k,v in b.items()}==p['buffers']
 print('fresh-process disk state equal')
 '''
     result = subprocess.run([sys.executable,'-c',code,str(payload),str(tmp_path/'fresh')],
-                            cwd=Path(__file__).resolve().parents[1], capture_output=True,text=True,check=True)
+                            cwd=Path(__file__).resolve().parents[1], capture_output=True,text=True,check=True,
+                            stdin=subprocess.DEVNULL)
     assert result.stdout.strip() == 'fresh-process disk state equal'

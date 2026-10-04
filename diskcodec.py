@@ -10,6 +10,7 @@ remain readable; their guard hashes are reconstructed from the embedded FAT
 image rather than trusting potentially changed host bytes.
 """
 import hashlib
+import stat
 from pathlib import Path, PurePosixPath
 
 from virtualfat16 import HostDirectoryFAT16
@@ -101,8 +102,13 @@ def dump_disk_state(disk, mode='auto', embed_limit=64*1024*1024):
     buffers = {'image': bytes(disk._image)}
     entries = []
     for path in sorted(disk.directory.rglob('*')):
-        if (path.is_symlink()
-                or (hasattr(path, 'is_junction') and path.is_junction())):
+        metadata = path.lstat()
+        # PyPy 3.12 on Windows exposes st_reparse_tag but omits this stat
+        # constant; Path.is_junction consequently raises even on ordinary files.
+        # Inspect the unfollowed entry and retain the Windows mount-point tag.
+        if (stat.S_ISLNK(metadata.st_mode)
+                or getattr(metadata, 'st_reparse_tag', 0) == getattr(
+                    stat, 'IO_REPARSE_TAG_MOUNT_POINT', 0xA0000003)):
             raise ValueError('host mount contains linked path')
         name = _relative(path.relative_to(disk.directory).as_posix())
         if path.is_dir():
