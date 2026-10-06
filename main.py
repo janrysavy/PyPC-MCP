@@ -453,6 +453,124 @@ try:
             result['cursor'] = scr.GetCursorInfo()
         return result
 
+    def rpc_text_address(params):
+        columns = scr.GetTextColumns()
+        page_size = columns * 25 * 2
+        page_count = len(scr._ram) // page_size
+        active_address = scr._display_address & scr.GetTextAddressMask()
+        if 'page' in params:
+            page = rpc_number(params['page'], 'page')
+            if page < 0 or page >= page_count:
+                raise ValueError(f'page must be 0..{page_count - 1}')
+            display_address = page * page_size
+        elif 'display_address' in params:
+            display_address = rpc_number(params['display_address'], 'display_address')
+            if display_address < 0 or display_address >= len(scr._ram):
+                raise ValueError('display_address must be within video memory')
+            display_address &= scr.GetTextAddressMask()
+        else:
+            display_address = active_address
+            display_address &= scr.GetTextAddressMask()
+        return columns, page_size, page_count, active_address, display_address
+
+    def rpc_text(params):
+        columns, page_size, page_count, active_address, display_address = rpc_text_address(params)
+        result = {
+            'adapter': scr.GetName(),
+            'columns': columns, 'rows': 25,
+            'page_size_bytes': page_size, 'page_count': page_count,
+            'page': display_address // page_size,
+            'active_page': active_address // page_size,
+            'is_active_page': display_address == active_address,
+            'display_address': display_address,
+            'mode': scr._cga_mode.name,
+            'graphics_mode': scr._graphics_mode,
+            'text': ReadTextScreen(scr, display_address),
+            'cells': ReadTextCells(scr, display_address),
+            'state_revision': control['revision'],
+        }
+        if hasattr(scr, 'GetCursorInfo'):
+            result['cursor'] = scr.GetCursorInfo()
+        return result
+
+
+    def rpc_observe_plan(address, length):
+        # Resolve every span against bus priority without invoking device reads.
+        # VGA planar reads latch data; mailbox/device reads may consume state.
+        plan = []
+        end = address + length
+        while address < end:
+            entry = next((item for item in b._cache
+                          if item.start_addr <= address < item.end_addr), None)
+            if entry is None:
+                raise ValueError('observation memory is not backed by safe storage')
+            stop = min(end, entry.end_addr)
+            for item in b._cache:
+                if address < item.start_addr < stop:
+                    stop = item.start_addr
+            owner = entry.device
+            if owner is b._m:
+                storage, offset = owner._m, address
+            elif type(owner) is rom.Rom:
+                storage, offset = owner._contents, address - owner._offset
+            elif owner is scr and scr._ram_offset <= address < scr._ram_offset + len(scr._ram):
+                storage, offset = scr._ram, address - scr._ram_offset
+                stop = min(stop, scr._ram_offset + len(scr._ram))
+            else:
+                raise ValueError('observation memory maps a device without a safe peek')
+            plan.append((storage, offset, stop - address))
+            address = stop
+        return plan
+
+    def rpc_observe_bytes(data, **fields):
+        return {**fields, 'byte_count': len(data),
+                'data_base64': base64.b64encode(data).decode('ascii'),
+                'data_hex': data.hex(), 'sha256': rpc_hash(data),
+                'state_revision': control['revision']}
+
+    def rpc_observe(params):
+        rpc_require_paused()
+        expected = rpc_number(params.get('expected_state_revision'), 'expected_state_revision')
+        if expected != control['revision']:
+            raise ValueError('expected state revision does not match the live state')
+        if set(params) - {'expected_state_revision', 'memory', 'video_text', 'video_memory'}:
+            raise ValueError('unsupported observation parameter')
+        windows = params.get('memory', [])
+        if not isinstance(windows, list) or len(windows) > 16:
+            raise ValueError('memory must contain at most 16 windows')
+        plans, total = [], 0
+        for window in windows:
+            if not isinstance(window, dict) or set(window) - {'address', 'offset', 'length'}:
+                raise ValueError('memory window must contain only address and length')
+            address = rpc_address(window)
+            length = rpc_number(window.get('length', 1), 'length')
+            if length < 1 or length > 65536 or address + length > 1024 * 1024:
+                raise ValueError('length must be 1..65536 and stay within memory')
+            total += length
+            if total > 65536:
+                raise ValueError('observation memory exceeds 65536 bytes')
+            plans.append((address, rpc_observe_plan(address, length)))
+        text_params = params.get('video_text')
+        if 'video_text' in params:
+            if not isinstance(text_params, dict) or set(text_params) - {'page', 'display_address'}:
+                raise ValueError('video_text must be an object with page or display_address')
+            rpc_text_address(text_params)
+        video_memory = params.get('video_memory', False)
+        if not isinstance(video_memory, bool):
+            raise ValueError('video_memory must be boolean')
+        # Only now copy bytes: malformed later windows/options cannot read devices.
+        result = {'state_revision': control['revision'], 'registers': rpc_registers(),
+                  'memory': [rpc_observe_bytes(b''.join(bytes(source[offset:offset + size])
+                                      for source, offset, size in plan), address=address)
+                             for address, plan in plans]}
+        if text_params is not None:
+            result['video_text'] = rpc_text(text_params)
+        if video_memory:
+            result['video_memory'] = rpc_observe_bytes(bytes(scr._ram),
+                                                      address=scr._ram_offset,
+                                                      adapter=scr.GetName())
+        return result
+
     def handle_debug(request):
         global trace, hardware_trace
         method = request['method']
@@ -467,11 +585,13 @@ try:
                 'address_spaces': ['physical', 'linear', 'segmented'],
                 'limits': {'max_memory_bytes': 65536, 'max_keyboard_events': 32,
                            'max_trace_events': 65536,
+                           'max_observation_windows': 16,
+                           'max_observation_memory_bytes': 65536,
                            'retained_video_snapshots': 8},
                 'methods': [
                     'agent.capabilities', 'emulator.info', 'state.get_registers',
                     'serial.status', 'serial.write', 'serial.read',
-                    'state.get', 'state.set_registers', 'session.status',
+                    'state.get', 'state.observe', 'state.set_registers', 'session.status',
                     'memory.read', 'memory.write', 'video.text', 'video.snapshot',
                     'video.snapshot.read', 'video.history.start',
                     'video.history.read', 'video.history.stop',
@@ -550,6 +670,9 @@ try:
 
         if method in ('state.get_registers', 'state.get'):
             return rpc_registers()
+
+        if method == 'state.observe':
+            return rpc_observe(params)
 
         if method == 'state.set_registers':
             rpc_require_paused()
@@ -668,40 +791,7 @@ try:
             }
 
         if method == 'video.text':
-            columns = scr.GetTextColumns()
-            page_size = columns * 25 * 2
-            page_count = len(scr._ram) // page_size
-            active_address = scr._display_address & scr.GetTextAddressMask()
-            if 'page' in params:
-                page = rpc_number(params['page'], 'page')
-                if page < 0 or page >= page_count:
-                    raise ValueError(f'page must be 0..{page_count - 1}')
-                display_address = page * page_size
-            elif 'display_address' in params:
-                display_address = rpc_number(params['display_address'], 'display_address')
-                if display_address < 0 or display_address >= len(scr._ram):
-                    raise ValueError('display_address must be within video memory')
-                display_address &= scr.GetTextAddressMask()
-            else:
-                display_address = active_address
-                display_address &= scr.GetTextAddressMask()
-            result = {
-                'adapter': scr.GetName(),
-                'columns': columns, 'rows': 25,
-                'page_size_bytes': page_size, 'page_count': page_count,
-                'page': display_address // page_size,
-                'active_page': active_address // page_size,
-                'is_active_page': display_address == active_address,
-                'display_address': display_address,
-                'mode': scr._cga_mode.name,
-                'graphics_mode': scr._graphics_mode,
-                'text': ReadTextScreen(scr, display_address),
-                'cells': ReadTextCells(scr, display_address),
-                'state_revision': control['revision'],
-            }
-            if hasattr(scr, 'GetCursorInfo'):
-                result['cursor'] = scr.GetCursorInfo()
-            return result
+            return rpc_text(params)
 
         if method == 'io.read':
             port = rpc_number(params.get('port'), 'port')

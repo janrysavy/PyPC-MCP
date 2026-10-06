@@ -59,6 +59,7 @@ Numbers may be JSON integers or strings accepted by Python `int(value, 0)`, such
 | `serial.write` | Queue host bytes for COM1 receive. |
 | `serial.read` | Read COM1 output without consuming it. |
 | `state.get` | Alias of `state.get_registers`. |
+| `state.observe` | Capture registers, bounded safe memory windows and optional video at one stopped revision. |
 | `state.set_registers` | Guarded register write while paused. |
 | `session.status` | Report the fixed live PyPC session and execution state. |
 | `memory.read` | Read a bounded physical/linear/segmented memory block. |
@@ -115,10 +116,11 @@ Result:
   "video_adapters":["CGA","VGA"],
   "address_spaces":["physical","linear","segmented"],
   "limits":{"max_memory_bytes":65536,"max_keyboard_events":32,
-    "max_trace_events":65536,"retained_video_snapshots":8},
+    "max_trace_events":65536,"max_observation_windows":16,
+    "max_observation_memory_bytes":65536,"retained_video_snapshots":8},
   "methods":["agent.capabilities","emulator.info","state.get_registers",
     "serial.status","serial.write","serial.read",
-    "state.get","state.set_registers","session.status","memory.read",
+    "state.get","state.observe","state.set_registers","session.status","memory.read",
     "memory.write","video.text","video.snapshot","video.snapshot.read",
     "video.history.start","video.history.read","video.history.stop",
     "io.read","io.write","input.keyboard","keyboard.scancode","input.state",
@@ -216,6 +218,47 @@ request and performs no write. Result:
 
 The abbreviated example represents the complete register objects returned by
 `state.get_registers`.
+
+## `state.observe`
+
+A read-only coherent capture. Requires a paused target and the exact current
+`expected_state_revision`; the complete request is validated before copying any
+bytes. The CPU thread handles the entire observation at one instruction boundary.
+It does not advance clocks, alter registers, queue input, consume device data or
+allocate a retained video snapshot.
+
+```json
+{"expected_state_revision":12345,
+ "memory":[{"address":{"space":"segmented","segment":"0x2600","offset":0},"length":32768},
+           {"address":"0xB8000","length":4000}],
+ "video_text":{},"video_memory":true}
+```
+
+`memory` defaults to an empty list: at most16 windows, each1..65536 bytes,
+at most65536 bytes in total, within1MiB. Address forms match `memory.read`.
+Unknown request/window fields and non-boolean `video_memory` are rejected.
+`video_text`, if supplied, must be an object containing only optional `page` or
+`display_address`, with the same selection rules and result as `video.text`.
+
+Result contains `state_revision`, `registers` (the existing
+`state.get_registers` result) and `memory` (ordered `memory.read`-shaped
+results: address, byte_count, data_hex, data_base64, sha256, state_revision).
+Requested `video_text` and `video_memory` results share that same revision.
+`video_memory` returns the entire text backing store, with the same byte/digest
+fields plus `address` and `adapter`; its bytes are separate from the65536-byte
+memory-window budget. It is not font memory or graphics-plane memory.
+
+Observation resolves bus mapping priority and copies safe RAM, immutable ROM
+and the current adapter's ordinary text backing directly. It deliberately
+refuses unsupported MMIO and VGA planar accesses rather than calling a device's
+possibly consuming read function or returning hidden underlying RAM. For other
+video planes/fonts use the existing immutable `video.snapshot` contract.
+`memory.read` retains its existing bus-backed behavior.
+
+The reproducible benchmark `python benchmarks/benchmark_observation_rpc.py`
+compares six separate calls with one coherent call over persistent localhost
+TCP, requiring identical register/RAM/text results. It uses a paused test
+8088+CGA; its results measure observation overhead, not game/emulation speed.
 
 ## `memory.read`
 
