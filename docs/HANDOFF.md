@@ -10,9 +10,9 @@ epoch bump fails all three new named controls, then exact restored source passes
 The real JSON-lines server services input while its production CPU loop runs.
 Review: RPC batch handling is correct; separate confirmed VNC/Telnet producer
 epoch debt remains (host input can bypass revision). No frontend fix is implied.
-WIP: final-head public CI and integration after the API documentation rebase.
-Rebase onto the integrated API documentation head and reconcile its enqueue
-paragraph/sample; parent stays pinned to the previous runtime until integration.
+API documentation rebase onto merged 48867c9 is complete, including the updated
+enqueue paragraph/sample. WIP: final-head public CI and integration; parent
+stays pinned to the previous runtime until integration.
 
 Earlier handoff notes below describe their historical slices.
 
