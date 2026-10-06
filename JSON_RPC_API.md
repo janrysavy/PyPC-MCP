@@ -502,12 +502,15 @@ Parameters:
 `port` is a required 16-bit integer. Result:
 
 ```json
-{"port":984,"value":9,"state_revision":12345}
+{"port":984,"value":9,"state_revision":12346}
 ```
 
 The read uses the same emulated I/O dispatch as an 8088 `IN` byte operation. It may
-have device-specific read side effects. Use `io.write` for explicit paused-state
-mutation.
+have device-specific read side effects. Every successful read advances
+`state_revision` once, including ports whose particular read leaves no observable
+change; this operation does not infer device purity or execute a CPU instruction.
+Invalid port parameters leave the machine and revision unchanged. Reads remain
+allowed while running or paused. Use `io.write` for explicit paused-state mutation.
 
 ## `io.write`
 
@@ -976,8 +979,12 @@ INT 14h and DOS COM1 programs; it is not a serial timing validation instrument.
 ## `serial.write`
 
 Params: `{"data_base64":"Ug0="}`. Queues the bytes `R` and CR on COM1 and returns
-`{"accepted":2,"rx_pending":2}`. Accepts 1..4096 bytes, validates the entire input
-before mutation, and refuses a full 65536-byte input queue or UART loopback mode.
+`{"accepted":2,"rx_pending":2,"state_revision":12346}`. Accepts 1..4096 bytes,
+validates the entire input before mutation, and refuses a full 65536-byte input queue or UART loopback mode.
+Each successfully accepted batch advances `state_revision` once without executing
+the CPU; rejected input preserves the UART, machine and revision. Calls remain
+supported while running or paused. These serial and port-read methods are PyPC
+capabilities; MartyPC currently refuses them as unsupported.
 A network timeout after submission is uncertain: do not blindly resend.
 
 ## `serial.read`

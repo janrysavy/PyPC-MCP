@@ -625,7 +625,9 @@ try:
             data = params.get('data_base64')
             if not isinstance(data, str) or len(data) > 5464:
                 raise ValueError('bounded base64 serial input required')
-            return serial.host_write(base64.b64decode(data, validate=True))
+            accepted = serial.host_write(base64.b64decode(data, validate=True))
+            control['revision'] += 1
+            return {**accepted, 'state_revision': control['revision']}
         if method == 'serial.read':
             return serial.host_read(params.get('offset'), params.get('max_bytes', 4096))
 
@@ -823,7 +825,10 @@ try:
             port = rpc_number(params.get('port'), 'port')
             if port < 0 or port > 0xffff:
                 raise ValueError('port must be a 16-bit number')
-            return {'port': port, 'value': p._io.In(port, False),
+            value = p._io.In(port, False)
+            # A device read can consume input or change its register-read phase.
+            control['revision'] += 1
+            return {'port': port, 'value': value,
                     'state_revision': control['revision']}
 
         if method == 'io.write':
