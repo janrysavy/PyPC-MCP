@@ -5,10 +5,12 @@ machine/control state, retained stop and breakpoint resume context. Continuing
 still executes the stopped instruction once before the next breakpoint. Active
 pause still cancels step/run_until and completes their operation without CPU
 execution. New stopped-pause controls fail on the old handler.
-FINISHED gates: 41 affected tests pass under CPython and PyPy; removing the
+FINISHED gates: 42 affected tests pass under CPython and PyPy; removing the
 stopped-pause guard fails both new state-preservation controls, restored source
-passes. WIP: scoped review, final-head public CI and rebase integration after the
-keyboard/API documentation slices. Parent pin stays fixed.
+passes. Scoped review found no defects; paired old/new continuation confirms the
+old handler retriggers the current breakpoint and the fixed handler reaches the
+next breakpoint. API/epoch rebase is complete. WIP: final-head public CI and
+integration after the keyboard epoch slice. Parent pin stays fixed.
 
 Earlier handoff notes below describe their historical slices.
 
