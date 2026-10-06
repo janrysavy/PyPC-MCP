@@ -81,8 +81,8 @@ Numbers may be JSON integers or strings accepted by Python `int(value, 0)`, such
 | `execution.continue` | Resume execution and return an operation id. |
 | `execution.go` | Alias of `execution.continue`. |
 | `execution.run_until` | Resume execution until a predicate or guest-time limit matches. |
-| `execution.wait` | Poll a continue or run-until operation. |
-| `execution.step` | Execute exactly one instruction, then pause. |
+| `execution.wait` | Poll a continue, run-until or step operation. |
+| `execution.step` | Accept one CPU Tick; poll its operation for the actual stop. |
 | `breakpoints.create` | Create an execution, memory-access, or software-interrupt breakpoint. |
 | `breakpoints.list` | List active breakpoints and hit counts. |
 | `breakpoints.delete` | Delete a breakpoint. |
@@ -542,6 +542,11 @@ the listed order. Result:
 {"accepted":2,"state_revision":12345}
 ```
 
+Keyboard requests are allowed while running or paused. The complete batch
+is validated before any event is enqueued. Enqueuing does not advance
+`state_revision` or the CPU; this revision alone cannot prove the input queue
+is unchanged. `keyboard.scancode` defaults omitted `pressed` to true.
+
 ## `input.state`
 
 No parameters. Result reports raw XT make codes currently held according to the
@@ -558,6 +563,9 @@ the joystick list is empty:
 
 The implementation returns scan-code integers; the fork’s named-key layer is not
 portable to this XT-only keyboard model.
+
+`pressed_scancodes` is the host-enqueued make/break state, not proof that DOS
+or the target consumed a key.
 
 ## `input.joystick` and `input.joystick.state`
 
@@ -644,8 +652,9 @@ Returns `{ "breakpoint_id":"bp-1", "deleted":true }`.
 
 When a breakpoint stops execution, `session.status.last_stop` contains
 `kind:"breakpoint"`, the breakpoint id, normalized address, hit count, and the
-coherent register snapshot. Continuing or stepping skips that same breakpoint
-for one instruction so a persistent breakpoint does not immediately retrigger.
+coherent register snapshot. Resuming an execution or pre-dispatch software-INT
+stop skips that breakpoint for one CPU Tick so execution can proceed. Memory
+watchpoints stop after the access; resuming does not suppress the next access.
 
 ## `execution.pause`
 
@@ -700,16 +709,21 @@ requested, start, deadline, actual, reached, and overshoot nanoseconds.
 
 ## `execution.wait`
 
-Polls an operation returned by `execution.continue` or `execution.run_until`.
-`timeout_ms` is validated but the current single-threaded server does not block
-inside an RPC handler; use repeated bounded polls. A pending operation returns:
+Polls an operation returned by `execution.continue`, `execution.run_until` or
+`execution.step`. Required `operation_id` identifies that operation. Optional
+`timeout_ms` defaults to 0 and must be in 0..60000; the single-threaded server
+does not block inside the handler. Use repeated polls capped by the controller
+wall deadline. A pending operation returns:
 
 ```json
 {"running":true}
 ```
 
-A completed operation returns `state:"stopped"` and a structured `stop_reason`
-matching `session.status.last_stop`.
+A completed operation returns `state:"stopped"` and its retained `stop_reason`.
+Read actual completed registers from `stop_reason.registers`; accepted step or
+continue replies describe entry state. Later stops can change
+`session.status.last_stop` without changing this operation's result. Up to 256
+operations are retained; unknown or evicted IDs are invalid parameters.
 
 ## `trace.start`
 
@@ -749,7 +763,10 @@ Reads retained events using a cursor:
 ```
 
 The result contains `events`, `event_count`, `active`, `detail`, and an optional
-`next_cursor` such as `trace-128`. Cursors are local to the current trace.
+`next_cursor` such as `trace-128`. Optional `limit` defaults to 128 and must
+be in 1..256. Cursors are local to the current trace and must identify an offset
+within retained events. Reading or stopping before a trace starts is refused;
+starting another active trace is refused. A new start replaces the old trace.
 
 ## `trace.stop`
 
@@ -802,9 +819,10 @@ final recorder metadata; drain retained events with `hardware.trace.read`.
 ## `execution.step`
 
 Accepts optional `{"mode":"into"}`. Requires the emulator to be paused. It
-authorizes exactly one `p.Tick()` call and then pauses again at the following
-instruction boundary. `mode:"over"` is rejected because PyPC does not yet have
-temporary breakpoint support.
+authorizes one `p.Tick()` call, subject to a breakpoint or pause winning first.
+A Tick can execute an opcode, dispatch a PIC interrupt, or advance HLT waiting;
+it is not necessarily an executed instruction. Step-over (`mode:"over"`) is
+unsupported.
 
 Result is the entry register object with `stepping:true` and `operation_id`
 added. It acknowledges the request before execution. Use `execution.wait`
@@ -814,21 +832,21 @@ running returns `-32602`.
 
 ## Minimal Python client
 
+Run from this repository root. The existing transport buffers complete JSON
+lines, validates reply IDs and propagates errors; one socket `recv()` does not
+guarantee a complete reply.
+
 ```python
-import json
-import socket
+from guest.dos_control import RPC
 
-def rpc(sock, request):
-    sock.sendall(json.dumps(request, separators=(",", ":")).encode() + b"\n")
-    return json.loads(sock.recv(1024 * 1024).splitlines()[0])
-
-with socket.create_connection(("127.0.0.1", 2301)) as sock:
-    print(rpc(sock, {"jsonrpc":"2.0", "id":1,
-                     "method":"video.text", "params":{}}))
-    print(rpc(sock, {"jsonrpc":"2.0", "id":2,
-                     "method":"input.keyboard",
-                     "params":{"events":[{"scan_code":"0x50", "pressed":True},
-                                             {"scan_code":"0x50", "pressed":False}]}}))
+rpc = RPC(2301)
+try:
+    print(rpc.call("video.text"))
+    print(rpc.call("input.keyboard", {"events":[
+        {"scan_code":"0x50", "pressed":True},
+        {"scan_code":"0x50", "pressed":False}]}))
+finally:
+    rpc.close()
 ```
 
 ## DOSBox-X API portability audit
@@ -916,7 +934,8 @@ in-flight one-shots, with or without the optional UART. Import requires the
 same game-port presence as the live machine before disk/state installation.
 Existing version-1/2/3 layouts are unchanged when the card is absent.
 
-Debugger breakpoints remain configured. Pending operations, instruction and
+By default debugger breakpoints remain configured; `preserve_breakpoints:false`
+clears them. Pending operations, instruction and
 hardware trace journals and retained video snapshots are cleared. Revision and
 operation identifiers remain host-session identities and are not rewound.
 The VNC frame cache is invalidated with a new display epoch. Network sessions
