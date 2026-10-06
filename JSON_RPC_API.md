@@ -536,18 +536,17 @@ Parameters:
 `events` is required and contains `1..32` objects. `scan_code` is an XT make code
 from `0x00` through `0x7F`; `pressed:true` queues the make code and `pressed:false`
 queues the corresponding break code (`scan_code | 0x80`). Events are queued in
-the listed order. Each successfully validated batch increments `state_revision`
-once without advancing the CPU; rejected batches leave keyboard state and the
-revision unchanged. Input remains supported while paused or running. Result:
+the listed order. Result:
 
 ```json
 {"accepted":2,"state_revision":12346}
 ```
 
 Keyboard requests are allowed while running or paused. The complete batch
-is validated before any event is enqueued. Enqueuing does not advance
-`state_revision` or the CPU; this revision alone cannot prove the input queue
-is unchanged. `keyboard.scancode` defaults omitted `pressed` to true.
+is validated before any event is enqueued. Each successfully validated batch
+increments `state_revision` once without advancing the CPU. Invalid batches
+leave the queue, pressed state and revision unchanged. `keyboard.scancode`
+defaults omitted `pressed` to true.
 
 ## `input.state`
 
