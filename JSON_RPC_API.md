@@ -959,6 +959,10 @@ are not serialized. Live external input after restore changes subsequent play.
 Bundles have a 1 GiB total uncompressed data limit and a 4 MiB JSON limit.
 Malformed bundles/hashes are rejected before live installation. Disk I/O failure
 can leave a partial new output directory; the live machine stays unchanged.
+Archive/reference host-file open, metadata or read failures return -32603.
+Invalid checksums, dependency lengths and request guards remain -32602.
+This documents import host reads; other backends' export/output I/O errors need
+their own explicit contract and are not covered by this compatibility scope.
 Host ACLs, permissions, timestamps and external applications are not captured.
 
 Archive publication uses an atomic hard link from a completed temporary file;
