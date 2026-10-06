@@ -638,11 +638,10 @@ try:
             if 'expected_sha256' in params and 'sha256' in params:
                 raise ValueError('supply expected_sha256 or legacy sha256, not both')
             expected_sha256 = params.get('expected_sha256', params.get('sha256'))
-            if 'expected_sha256' in params:
-                if (not isinstance(expected_sha256, str) or len(expected_sha256) != 64
-                        or any(c not in '0123456789abcdefABCDEF' for c in expected_sha256)):
-                    raise ValueError('expected_sha256 must be a 64-character hexadecimal digest')
-                expected_sha256 = expected_sha256.lower()
+            if (not isinstance(expected_sha256, str) or len(expected_sha256) != 64
+                    or any(c not in '0123456789abcdefABCDEF' for c in expected_sha256)):
+                raise ValueError('expected_sha256 or sha256 must be a 64-character hexadecimal digest')
+            expected_sha256 = expected_sha256.lower()
             preserve = params.get('preserve_breakpoints', True)
             if not isinstance(preserve, bool):
                 raise ValueError('preserve_breakpoints must be boolean')

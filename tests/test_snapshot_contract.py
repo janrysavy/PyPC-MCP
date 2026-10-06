@@ -69,11 +69,13 @@ class SnapshotContractTests(unittest.TestCase):
         exported = self.export()
         before = capture_machine(self.cpu)
         controls = copy.deepcopy(self.h.control)
-        invalid = [dict(expected_sha256=None), dict(expected_sha256=True),
+        invalid = [dict(), dict(sha256=None), dict(sha256=True),
+                   dict(sha256='wrong'), dict(expected_sha256=None), dict(expected_sha256=True),
                    dict(expected_sha256='f'*63), dict(expected_sha256=' '*60+'abcd'),
                    dict(expected_sha256='g'*64), dict(expected_sha256='0'*64),
                    dict(expected_sha256=exported['sha256'], sha256=exported['sha256']),
-                   dict(preserve_breakpoints=1), dict(preserve_breakpoints=None)]
+                   dict(preserve_breakpoints=1, expected_sha256=exported['sha256']),
+                   dict(preserve_breakpoints=None, expected_sha256=exported['sha256'])]
         for params in invalid:
             with self.subTest(params=params), self.assertRaises(ValueError):
                 self.h.rpc('machine.snapshot.import', path=exported['path'],

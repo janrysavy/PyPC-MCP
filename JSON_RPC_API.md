@@ -873,7 +873,7 @@ Both methods require a paused machine and `expected_state_revision` equal to
 - `machine.snapshot.export`: `path` must be a new file. Optional `disk_mode`
   is `auto` (default), `embed`, `reference`, or `reference-files`. Returns
   `path`, archive `bytes`/`sha256` and current `state_revision`. The ZIP contains JSON plus hashed binary payloads.
-- `machine.snapshot.import`: `path`, new `disk_root` directory, optional archive
+- `machine.snapshot.import`: `path`, new `disk_root` directory, required archive
   legacy `sha256` or canonical `expected_sha256`, and optional `references` mapping string disk indices `0`/`1` to
   source image paths. Referenced images must match saved size and SHA-256.
   Returns the new revision and `machine_snapshot_restored` stop reason.
@@ -885,8 +885,10 @@ host directories. Legacy policies are unchanged: `reference` still refuses host
 mounts. Import copies each verified file reference into a new writable disk;
 subsequent guest writes cannot change the immutable reference.
 
-New shared clients supply `expected_sha256` (64 hexadecimal characters) on every
-import. Legacy `sha256` remains supported; supplying both aliases is rejected.
+Every import requires one independently retained archive digest: canonical
+`expected_sha256` or legacy `sha256`,64 hexadecimal characters. New shared clients
+use the canonical name. Supplying both aliases is rejected. The former unguarded
+RPC import is intentionally no longer accepted; internal codec APIs are unchanged.
 Optional `preserve_breakpoints` is boolean, default `true`: retain permanent host
 breakpoint definitions and hit counters, clear transient predicates/operations
 and journals. `false` clears all breakpoints after successful installation.
