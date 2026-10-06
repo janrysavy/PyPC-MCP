@@ -102,7 +102,8 @@ class CGA(mda.MDA):
             self._m6845.Write(self._m6845_reg, value)
 
             if self._m6845_reg == 12 or self._m6845_reg == 13:
-                self._display_address = (self._m6845.Read(12) << 8) | self._m6845.Read(13)
+                word_address = (self._m6845.Read(12) << 8) | self._m6845.Read(13)
+                self._display_address = (word_address << 1) & self.GetTextAddressMask()
 
             if self._m6845_reg == 14 or self._m6845_reg == 15:
                 self._cursor_location = (self._m6845.Read(14) << 8) | self._m6845.Read(15)

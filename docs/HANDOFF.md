@@ -1,3 +1,11 @@
+# Handoff - CGA CRTC start address, 2026-10-06
+
+FINISHED local: CRTC start is converted from word to wrapped byte address,
+matching VGA/native MartyPC semantics. A nonzero page renders pixel-identically
+with page0; FFFF start wraps correctly and coherent text captures cells across
+VRAM end. This changes incorrect nonzero-page behavior, not clocks or guest RAM.
+Focused CPython/PyPy tests and final-head full CI/review run before integration.
+
 # Handoff - shared execution/address/error contract, 2026-10-06
 
 FINISHED local: execution.step returns operation_id with its legacy entry
@@ -7,7 +15,7 @@ at20 bits; physical/linear bounds remain strict. RPCError keeps RuntimeError
 compatibility/text while exposing server code/message/data for strong controls.
 New tests cover accepted-versus-completed steps, duplicate operations, pause,
 watchpoint completion, FFFF:0010 wrap, invalid Words and real TCP rejection.
-28 focused CPython tests plus35 subtests and22 PyPy unittest cases pass.
+27 focused CPython tests plus35 subtests and22 PyPy unittest cases pass.
 Final-head full CI/review remain WIP.
 
 # Handoff - CGA mirrored observation aperture, 2026-10-06
