@@ -155,6 +155,31 @@ class ObservationSocketTests(unittest.TestCase):
     tearDown = execution_tests.SocketRPCTests.tearDown
     request = execution_tests.SocketRPCTests.request
 
+    def test_ambiguous_text_selectors_refused_over_json_lines(self):
+        helpers, video = machine()
+        self.machine.namespace.update(scr=video, rom=rom,
+            ReadTextScreen=helpers.namespace['ReadTextScreen'],
+            ReadTextCells=helpers.namespace['ReadTextCells'])
+        for method in ('video.text', 'state.observe'):
+            for selection in ({'page':0,'display_address':0},
+                              {'page':0,'display_address':2},
+                              {'page':None,'display_address':0},
+                              {'page':None,'display_address':None}):
+                params = (selection if method == 'video.text' else
+                          dict(expected_state_revision=0,video_text=selection,
+                               memory=[{'address':0x10100,'length':2}],video_memory=True))
+                with self.subTest(method=method,selection=selection):
+                    self.stream.write(json.dumps({'jsonrpc':'2.0','id':'selectors',
+                        'method':method,'params':params}).encode()+b'\n')
+                    error = json.loads(self.stream.readline())['error']
+                    self.assertEqual(error['code'],-32602)
+                    self.assertEqual(error['message'],'page and display_address are mutually exclusive')
+        page = self.request('video.text',page=0)
+        address = self.request('video.text',display_address=0)
+        self.assertEqual(page,address)
+        self.assertEqual(self.request('state.observe',expected_state_revision=0,
+            video_text={'page':0})['video_text'],page)
+
     def test_invalid_request_then_atomic_capture_on_same_connection(self):
         self.machine.namespace.update(scr=cga.CGA(False), rom=rom)
         self.stream.write(json.dumps({'jsonrpc':'2.0', 'id':'invalid',
@@ -172,6 +197,39 @@ class ObservationSocketTests(unittest.TestCase):
 
 
 class CompleteObservationTests(unittest.TestCase):
+    def test_ambiguous_text_selectors_preserve_complete_machine(self):
+        from tests.machine_fixture import rpc_machine
+        from machinecodec import capture_machine
+        from tempfile import TemporaryDirectory
+        directory = Path(__file__).resolve().parents[1] / '.test-tmp'
+        directory.mkdir(exist_ok=True)
+        with TemporaryDirectory(dir=directory) as scratch:
+            h, cpu, _ = rpc_machine(Path(scratch))
+            helpers, _ = machine()
+            h.namespace.update(rom=rom,
+                ReadTextScreen=helpers.namespace['ReadTextScreen'],
+                ReadTextCells=helpers.namespace['ReadTextCells'])
+            before, control = capture_machine(cpu), copy.deepcopy(h.control)
+            for method in ('video.text','state.observe'):
+                for selection in ({'page':0,'display_address':0},
+                                  {'page':0,'display_address':2},
+                                  {'page':None,'display_address':0},
+                                  {'page':None,'display_address':None}):
+                    params = (selection if method == 'video.text' else
+                              dict(expected_state_revision=0,video_text=selection,
+                                   memory=[{'address':0x10000,'length':32}],video_memory=True))
+                    with self.subTest(method=method,selection=selection):
+                        with self.assertRaisesRegex(ValueError,'mutually exclusive'):
+                            h.rpc(method,**params)
+                        self.assertEqual(capture_machine(cpu),before)
+                        self.assertEqual(h.control,control)
+            for selection in ({'page':0},{'display_address':0}):
+                text = h.rpc('video.text',**selection)
+                observed = h.rpc('state.observe',expected_state_revision=0,video_text=selection)
+                self.assertEqual(observed['video_text'],text)
+                self.assertEqual(capture_machine(cpu),before)
+                self.assertEqual(h.control,control)
+
     def test_observation_preserves_complete_configured_machine(self):
         from tests.machine_fixture import rpc_machine
         from machinecodec import capture_machine

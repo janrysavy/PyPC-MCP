@@ -457,6 +457,8 @@ try:
         return result
 
     def rpc_text_address(params):
+        if 'page' in params and 'display_address' in params:
+            raise ValueError('page and display_address are mutually exclusive')
         columns = scr.GetTextColumns()
         page_size = columns * 25 * 2
         page_count = len(scr._ram) // page_size
