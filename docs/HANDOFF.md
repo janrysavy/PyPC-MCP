@@ -1,3 +1,15 @@
+# Handoff - shared execution/address/error contract, 2026-10-06
+
+FINISHED local: execution.step returns operation_id with its legacy entry
+registers; execution.wait reports actual completion, including pause or memory/
+interrupt breakpoint stops. Segmented addresses require16-bit fields and wrap
+at20 bits; physical/linear bounds remain strict. RPCError keeps RuntimeError
+compatibility/text while exposing server code/message/data for strong controls.
+New tests cover accepted-versus-completed steps, duplicate operations, pause,
+watchpoint completion, FFFF:0010 wrap, invalid Words and real TCP rejection.
+28 focused CPython tests plus35 subtests and22 PyPy unittest cases pass.
+Final-head full CI/review remain WIP.
+
 # Handoff - CGA mirrored observation aperture, 2026-10-06
 
 Independent review found coherent observation refused CGA BC000..BFFFF even

@@ -122,6 +122,16 @@ class DOSOutputError(RuntimeError):
         return {'kind': 'output_capture', 'message': str(self), 'cause': detail}
 
 
+class RPCError(RuntimeError):
+    """A complete server rejection, distinct from transport/decoding failures."""
+    def __init__(self, method, error):
+        self.code = error.get('code')
+        self.message = error.get('message')
+        self.data = error.get('data')
+        self.method = method
+        super().__init__(f'{method}: {error}')
+
+
 class RPC:
     def __init__(self, port: int):
         self.port = port
@@ -174,7 +184,7 @@ class RPC:
             if reply.get('id') != request_id:
                 raise RuntimeError('PyPC reply id mismatch')
             if 'error' in reply:
-                raise RuntimeError(f'{method}: {reply["error"]}')
+                raise RPCError(method, reply["error"])
             return reply['result']
         except Exception:
             self.close()

@@ -32,6 +32,10 @@ class Handler(socketserver.StreamRequestHandler):
             if number == 1 and self.server.bad_reply == 'timeout':
                 time.sleep(0.15)  # Write was applied, but the reply is late.
             reply = {'jsonrpc': '2.0', 'id': request['id'], 'result': {'calls': number}}
+            if number == 1 and self.server.bad_reply == 'error':
+                reply = {'jsonrpc':'2.0', 'id':request['id'],
+                         'error':{'code':-32602, 'message':'invalid window',
+                                  'data':{'index':1}}}
             if number == 1 and self.server.bad_reply == 'id':
                 reply['id'] += 100
             try:
@@ -88,5 +92,24 @@ def test_uncertain_write_closes_channel_without_replay(peer_factory, failure):
         assert rpc.call('memory.read') == {'calls': 2}
         assert peer.connections == 2
         assert [r['method'] for r in peer.requests] == ['memory.write', 'memory.read']
+    finally:
+        rpc.close()
+
+
+def test_structured_server_rejection_retains_runtimeerror_compatibility(peer_factory):
+    from guest.dos_control import RPCError
+    peer = peer_factory('error')
+    rpc = RPC(peer.server_address[1])
+    try:
+        with pytest.raises(RPCError) as caught:
+            rpc.call('state.observe')
+        error = caught.value
+        assert isinstance(error, RuntimeError)
+        assert error.code == -32602 and error.message == 'invalid window'
+        assert error.data == {'index':1} and error.method == 'state.observe'
+        assert str(error) == "state.observe: {'code': -32602, 'message': 'invalid window', 'data': {'index': 1}}"
+        assert rpc._socket is None and rpc._stream is None
+        assert rpc.call('state.get_registers') == {'calls':2}
+        assert [r['method'] for r in peer.requests] == ['state.observe', 'state.get_registers']
     finally:
         rpc.close()
