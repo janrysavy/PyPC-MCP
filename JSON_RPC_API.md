@@ -661,7 +661,8 @@ watchpoints stop after the access; resuming does not suppress the next access.
 
 No parameters. Requests that execution stop at the next instruction boundary.
 When the request returns, no further CPU instruction is executed until a continue
-or step request. Result:
+or step request. If already stopped, pause is read-only: it preserves the last stop,
+operation results, revision and breakpoint resume context. Result:
 
 ```json
 {"paused":true,"general":{},"segments":{},"ip":0,"flags":0,

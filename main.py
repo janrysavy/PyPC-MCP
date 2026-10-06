@@ -953,6 +953,8 @@ try:
             }
 
         if method == 'execution.pause':
+            if control['paused']:
+                return {'paused': True, **rpc_registers()}
             rpc_clear_run_until()
             control['paused'] = True
             control['step'] = False

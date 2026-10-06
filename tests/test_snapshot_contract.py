@@ -17,6 +17,20 @@ from virtualfat16 import HostDirectoryFAT16
 
 
 class SnapshotContractTests(unittest.TestCase):
+    def test_redundant_pause_preserves_complete_machine_and_control(self):
+        state = self.cpu.GetState()
+        breakpoint = self.h.rpc('breakpoints.create', address={
+            'space': 'segmented', 'segment': state.GetCS(), 'offset': state.GetIP()})['breakpoint_id']
+        self.h.rpc('execution.continue')
+        self.h.pump()
+        self.assertEqual(self.h.control['last_stop']['breakpoint_id'], breakpoint)
+        before = capture_machine(self.cpu)
+        controls = copy.deepcopy(self.h.control)
+        for _ in range(2):
+            self.h.rpc('execution.pause')
+            self.assertEqual(capture_machine(self.cpu), before)
+            self.assertEqual(self.h.control, controls)
+
     def test_keyboard_epochs_guard_complete_snapshot_state_and_rejected_batches(self):
         self.h.namespace['kb'] = self.cpu._devices[1]
         old = self.export()

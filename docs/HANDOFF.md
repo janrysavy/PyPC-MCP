@@ -1,3 +1,17 @@
+# Handoff - idempotent stopped pause, 2026-10-06
+
+FINISHED local: execution.pause on a stopped machine preserves the complete
+machine/control state, retained stop and breakpoint resume context. Continuing
+still executes the stopped instruction once before the next breakpoint. Active
+pause still cancels step/run_until and completes their operation without CPU
+execution. New stopped-pause controls fail on the old handler.
+FINISHED gates: 41 affected tests pass under CPython and PyPy; removing the
+stopped-pause guard fails both new state-preservation controls, restored source
+passes. WIP: scoped review, final-head public CI and rebase integration after the
+keyboard/API documentation slices. Parent pin stays fixed.
+
+Earlier handoff notes below describe their historical slices.
+
 # Handoff - keyboard input epochs, 2026-10-06
 
 FINISHED local: each validated input.keyboard/keyboard.scancode batch advances

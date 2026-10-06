@@ -5,6 +5,7 @@ Telnet and VNC. No CPU, breakpoint, trace, or RPC implementation is mocked.
 The original while-loop body is executed once per pump in a one-item loop.
 """
 import ast
+import copy
 import base64
 import hashlib
 import json
@@ -84,6 +85,47 @@ class HeadlessMachine:
 
 
 class ExecutionRPCTests(unittest.TestCase):
+    def test_redundant_pause_preserves_stop_and_execution_breakpoint_resume(self):
+        machine = HeadlessMachine()
+        machine.load(b'\x90\x90')
+        first = machine.execution_bp(0x100)
+        next_breakpoint = machine.execution_bp(0x101)
+        operation = machine.rpc('execution.continue')
+        machine.pump()
+        self.assertEqual(machine.control['last_stop']['breakpoint_id'], first)
+        stopped = copy.deepcopy(machine.control)
+        registers = machine.rpc('state.get_registers')
+        for _ in range(2):
+            self.assertEqual(machine.rpc('execution.pause'), {'paused': True, **registers})
+            self.assertEqual(machine.control, stopped)
+        self.assertEqual(machine.rpc('execution.wait', operation_id=operation['operation_id'])['stop_reason'],
+                         stopped['last_stop'])
+        machine.rpc('execution.continue')
+        machine.pump()
+        self.assertEqual(machine.state.GetIP(), 0x101)
+        machine.pump()
+        self.assertEqual(machine.control['last_stop']['breakpoint_id'], next_breakpoint)
+
+    def test_active_pause_cancels_step_and_run_until_without_executing(self):
+        for method, params in (('execution.step', {}), ('execution.run_until', {'predicate': {
+                'address': {'space': 'segmented', 'segment': 0x1000, 'offset': 0x102}}})):
+            with self.subTest(method=method):
+                machine = HeadlessMachine()
+                machine.load(b'\x90\x90\x90')
+                before = machine.rpc('state.get_registers')
+                operation = machine.rpc(method, **params)
+                machine.rpc('execution.pause')
+                self.assertEqual(machine.rpc('state.get_registers'), before)
+                self.assertTrue(machine.control['paused'])
+                self.assertFalse(machine.control['step'])
+                self.assertIsNone(machine.control['run_until_id'])
+                self.assertIsNone(machine.control['skip_breakpoint_id'])
+                self.assertIsNone(machine.control['active_operation'])
+                done = machine.rpc('execution.wait', operation_id=operation['operation_id'])
+                self.assertEqual(done['stop_reason']['kind'], 'pause')
+                self.assertEqual(done['stop_reason']['registers'], before)
+                self.assertEqual(machine.rpc('breakpoints.list')['breakpoints'], [])
+
     def test_running_keyboard_enqueue_advances_epoch_without_completing_operation(self):
         machine = HeadlessMachine()
         machine.namespace['kb'] = keyboard.Keyboard()
