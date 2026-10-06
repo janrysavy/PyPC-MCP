@@ -1,3 +1,10 @@
+# Handoff - snapshot host-read contract, 2026-10-06
+
+FINISHED documentation: import archive/reference host I/O reads return -32603;
+checksum/length/request refusals remain -32602. Runtime is unchanged; 14 focused
+API/snapshot tests and 13 subtests pass. Require final-head public CI before
+integration. Cross-backend export/output I/O normalization remains OPEN.
+
 # Handoff - device operation epochs, 2026-10-06
 
 FINISHED local: successful serial.write batches and io.read bus operations advance
@@ -12,7 +19,8 @@ control accept the old revision; exact restored source passes. Invalid parameter
 full queue and loopback refusals preserve complete Machine/control state.
 Initial scoped review found no runtime defect; its running-loop proof and central
 revision-summary gaps are fixed with an actual JSON-lines/CPU-loop UART test.
-WIP: targeted final review and final-head public CI/integration.
+PR77 rebase-integrated at b7e69ff after final-head public CI and no-defect
+targeted review.
 Parent source pin remains fixed until the combined repair/compiler witness.
 
 Earlier handoff notes below describe their historical slices.
