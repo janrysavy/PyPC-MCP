@@ -1,3 +1,20 @@
+# Handoff - coherent stopped observation, 2026-10-06
+
+FINISHED local state.observe: paused/revision-guarded registers, up to16 safe
+memory windows (65536 bytes aggregate), optional text/raw text VRAM in one RPC.
+RAM/ROM/text backing peeks respect bus priority; unsafe MMIO/planar accesses
+refuse without consuming device reads. No CPU/device/input/snapshot mutation.
+Seven new tests pass on Windows CPython/PyPy, including production TCP errors,
+CGA/VGA storage, invalid later requests, bus overlays and stale/running guards.
+PyPy persistent-TCP benchmark: identical four-window/register/text results;
+six calls92.26ms median versus one15.37ms over100 alternating pairs after25
+warmups. This paused test-machine result is not gameplay/CPU throughput.
+Receipt: tests/evidence/observation-pypy-windows-20261006.json.
+Windows full regression:1489 passed,23 skipped,320 subtests (DEVNULL stdin;
+pinned GLaBIOS initialized). Independent review and final-head public CI/PR
+integration remain WIP. Parent must validate original-game captures after pinning.
+Existing CGA nonzero CRTC start word/byte conversion needs a separate fix.
+
 # Handoff - CPU trace interrupt dispatch, 2026-10-04
 
 FINISHED local fix: standalone accepted PIC entry is interrupt_dispatch with
