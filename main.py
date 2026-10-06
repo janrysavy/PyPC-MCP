@@ -858,6 +858,8 @@ try:
                 scancodes.append(code if pressed else code | 0x80)
             for scancode in scancodes:
                 kb.PushKeyboardScancode(scancode)
+            # Queued input is snapshot state even before the CPU consumes it.
+            control['revision'] += 1
             return {'accepted': len(events), 'state_revision': control['revision']}
 
         if method == 'input.state':

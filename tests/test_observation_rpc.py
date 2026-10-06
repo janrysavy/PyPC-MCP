@@ -12,6 +12,7 @@ import bus
 import cga
 import rom
 import vga
+import keyboard
 from tests.test_execution_rpc import HeadlessMachine
 from tests import test_execution_rpc as execution_tests
 
@@ -30,6 +31,22 @@ def machine(video='cga'):
 
 
 class ObservationTests(unittest.TestCase):
+    def test_keyboard_enqueue_invalidates_old_observation_epoch(self):
+        m, _ = machine()
+        m.namespace['kb'] = keyboard.Keyboard()
+        for method, params in (('input.keyboard', {'events': [{'scan_code': 77},
+                                                             {'scan_code': 77, 'pressed': False}]}),
+                               ('keyboard.scancode', {'scan_code': 30})):
+            before = m.rpc('state.get_registers')
+            accepted = m.rpc(method, **params)
+            self.assertEqual(accepted['state_revision'], before['state_revision'] + 1)
+            with self.assertRaisesRegex(ValueError, 'expected state revision'):
+                m.rpc('state.observe', expected_state_revision=before['state_revision'])
+            actual = m.rpc('state.observe', expected_state_revision=accepted['state_revision'])
+            self.assertEqual(actual['registers']['clock'], before['clock'])
+            self.assertEqual(actual['registers']['ip'], before['ip'])
+            self.assertEqual(actual['state_revision'], accepted['state_revision'])
+
     def test_equal_separate_reads_preserve_captured_state(self):
         for adapter in ('cga', 'vga'):
             with self.subTest(adapter=adapter):

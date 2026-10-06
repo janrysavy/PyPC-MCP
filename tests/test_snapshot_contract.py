@@ -17,6 +17,39 @@ from virtualfat16 import HostDirectoryFAT16
 
 
 class SnapshotContractTests(unittest.TestCase):
+    def test_keyboard_epochs_guard_complete_snapshot_state_and_rejected_batches(self):
+        self.h.namespace['kb'] = self.cpu._devices[1]
+        old = self.export()
+        for index, (method, params) in enumerate((
+                ('input.keyboard', {'events': [{'scan_code': 42}, {'scan_code': 42, 'pressed': False}]}),
+                ('keyboard.scancode', {'scan_code': 77}))):
+            before = capture_machine(self.cpu)
+            controls = copy.deepcopy(self.h.control)
+            with self.assertRaises(ValueError):
+                self.h.rpc('input.keyboard', events=[{'scan_code': 42}, {'scan_code': 128}])
+            self.assertEqual(capture_machine(self.cpu), before)
+            self.assertEqual(self.h.control, controls)
+            accepted = self.h.rpc(method, **params)
+            changed = capture_machine(self.cpu)
+            self.assertNotEqual(changed[0]['keyboard'], before[0]['keyboard'])
+            self.assertEqual(accepted['state_revision'], controls['revision'] + 1)
+            refused = self.root / ('stale-' + str(index))
+            current_controls = copy.deepcopy(self.h.control)
+            for operation in ('export', 'import'):
+                with self.assertRaisesRegex(ValueError, 'expected state revision'):
+                    self.h.rpc('machine.snapshot.' + operation,
+                               path=old['path'] if operation == 'import' else str(self.root / 'stale.pypc'),
+                               expected_state_revision=controls['revision'], disk_root=str(refused),
+                               expected_sha256=old['sha256'], references={'0': str(self.reference)})
+                self.assertFalse(refused.exists())
+                self.assertFalse((self.root / 'stale.pypc').exists())
+                self.assertEqual(capture_machine(self.cpu), changed)
+                self.assertEqual(self.h.control, current_controls)
+            current = self.h.rpc('machine.snapshot.export', path=str(self.root / ('queued-' + str(index) + '.pypc')),
+                                 expected_state_revision=accepted['state_revision'])
+            manifest, _ = read_bundle(current['path'], current['sha256'])
+            self.assertEqual(manifest['keyboard'], changed[0]['keyboard'])
+
     def setUp(self):
         scratch = Path(__file__).resolve().parents[1] / '.test-tmp'
         scratch.mkdir(exist_ok=True)

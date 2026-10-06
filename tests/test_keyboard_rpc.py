@@ -40,6 +40,7 @@ class KeyboardRPCValidationTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.call({'events': [{'scan_code': 42}, bad_event]})
                 self.assertEqual(self.snapshot(), before)
+                self.assertEqual(self.handler.__globals__['control']['revision'], 123)
 
     def test_rejected_batch_does_not_release_an_existing_key(self):
         self.kb.PushKeyboardScancode(42)
@@ -48,17 +49,18 @@ class KeyboardRPCValidationTests(unittest.TestCase):
             self.call({'events': [{'scan_code': 42, 'pressed': False},
                                   {'scan_code': 128}]})
         self.assertEqual(self.snapshot(), before)
+        self.assertEqual(self.handler.__globals__['control']['revision'], 123)
 
     def test_valid_batch_preserves_make_break_order(self):
         result = self.call({'events': [{'scan_code': '0x2a'}, {'scan_code': 30},
                                       {'scan_code': 30, 'pressed': False},
                                       {'scan_code': 42, 'pressed': False}]})
-        self.assertEqual(result, {'accepted': 4, 'state_revision': 123})
+        self.assertEqual(result, {'accepted': 4, 'state_revision': 124})
         self.assertEqual(self.snapshot(), ([], [42, 30, 158, 170]))
 
     def test_single_event_alias_and_default_pressed(self):
-        self.call({'scan_code': 30}, method='keyboard.scancode')
-        self.call({'scan_code': 30, 'pressed': False})
+        self.assertEqual(self.call({'scan_code': 30}, method='keyboard.scancode')['state_revision'], 124)
+        self.assertEqual(self.call({'scan_code': 30, 'pressed': False})['state_revision'], 125)
         self.assertEqual(self.snapshot(), ([], [30, 158]))
 
     def test_batch_limits(self):
@@ -68,7 +70,9 @@ class KeyboardRPCValidationTests(unittest.TestCase):
                 with self.assertRaises(ValueError):
                     self.call({'events': events})
                 self.assertEqual(self.snapshot(), before)
-        self.assertEqual(self.call({'events': [{'scan_code': 30}] * 32})['accepted'], 32)
+                self.assertEqual(self.handler.__globals__['control']['revision'], 123)
+        self.assertEqual(self.call({'events': [{'scan_code': 30}] * 32}),
+                         {'accepted': 32, 'state_revision': 124})
         self.assertEqual(self.snapshot(), ([30], [30] * 32))
 
 

@@ -1,3 +1,18 @@
+# Handoff - keyboard input epochs, 2026-10-06
+
+FINISHED local: each validated input.keyboard/keyboard.scancode batch advances
+state_revision once after enqueue. Running input remains supported; enqueue does
+not execute the CPU or complete an active operation. Invalid batches preserve
+complete machine/control state. Stale coherent-observation and snapshot tokens
+now refuse; fresh snapshot metadata includes the changed keyboard queue.
+FINISHED gates: 38 affected tests pass on CPython and PyPy; omitting the enqueue
+epoch bump fails all three new named controls, then exact restored source passes.
+WIP: final-head public CI and integration after the API documentation rebase.
+Rebase onto the integrated API documentation head and reconcile its enqueue
+paragraph/sample; parent stays pinned to the previous runtime until integration.
+
+Earlier handoff notes below describe their historical slices.
+
 # Handoff - exclusive text address selectors, 2026-10-06
 
 FINISHED local: video.text and state.observe video_text reject simultaneous
