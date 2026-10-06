@@ -30,12 +30,12 @@ class IdleTransport:
 
 
 class HeadlessMachine:
-    def __init__(self, main_path=None, devices=None):
+    def __init__(self, main_path=None, devices=None, run_IO=False):
         main_path = main_path or Path(__file__).resolve().parents[1] / 'main.py'
         tree = ast.parse(main_path.read_text(), filename=str(main_path))
         body = next(node.body for node in tree.body if isinstance(node, ast.Try))
         self.memory = bus.Bus(1 << 20, [], [])
-        self.cpu = i8088.i8088(self.memory, [] if devices is None else devices, False)
+        self.cpu = i8088.i8088(self.memory, [] if devices is None else devices, run_IO)
         self.state = self.cpu.GetState()
         for name, value in dict(CS=0x1000, DS=0x2000, ES=0x3000,
                                 SS=0x2000, IP=0x100, SP=0x9000, Flags=2).items():
@@ -242,8 +242,8 @@ class ExecutionRPCTests(unittest.TestCase):
 
 
 class SocketRPCTests(unittest.TestCase):
-    def setUp(self):
-        self.machine = HeadlessMachine()
+    def setUp(self, machine=None):
+        self.machine = machine if machine is not None else HeadlessMachine()
         self.server = debugserver.DebugServer(0)
         self.machine.namespace['debug'] = self.server
         self.stop = threading.Event()

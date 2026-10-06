@@ -186,8 +186,11 @@ Result:
 
 Register values and `clock` are unsigned integers. `state_revision` advances after
 each executed instruction and after a successful paused-state mutation through
-`state.set_registers`, `memory.write`, or `io.write`. It identifies the snapshot
-boundary at which the read was made. Unlike the full DOSBox-X service, PyPC permits
+`state.set_registers`, `memory.write`, or `io.write`. Successfully accepted
+keyboard/joystick input, `serial.write` batches, and `io.read` bus operations also
+advance it once. Port reads conservatively invalidate guards even if a particular
+read leaves no observable device change. It identifies the snapshot boundary at
+which the read was made. Unlike the full DOSBox-X service, PyPC permits
 this read while the CPU is running because the request is executed synchronously at
 an instruction boundary.
 
