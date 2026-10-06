@@ -8,6 +8,9 @@ import unittest
 from checkpointbundle import read_bundle
 from machinecodec import capture_machine
 from tests.machine_fixture import rpc_machine
+from tests.test_execution_rpc import HeadlessMachine
+from tests import test_execution_rpc as execution_tests
+from uart8250 import UART8250
 
 
 class DeviceIOEpochTests(unittest.TestCase):
@@ -103,6 +106,35 @@ class DeviceIOEpochTests(unittest.TestCase):
         self.assertEqual(capture_machine(self.cpu), before)
         with self.assertRaisesRegex(ValueError, 'expected state revision'):
             self.h.rpc('state.observe', expected_state_revision=0)
+
+
+class DeviceIORunningSocketTests(unittest.TestCase):
+    # Use the same JSON-lines socket and production-loop worker as execution tests.
+    tearDown = execution_tests.SocketRPCTests.tearDown
+    request = execution_tests.SocketRPCTests.request
+
+    def setUp(self):
+        uart = UART8250()
+        machine = HeadlessMachine(devices=[uart], run_IO=True)
+        machine.namespace['serial'] = uart
+        execution_tests.SocketRPCTests.setUp(self, machine=machine)
+
+    def test_device_requests_are_serviced_while_cpu_actually_runs(self):
+        self.machine.load(bytes.fromhex('eb fe'))
+        operation = self.request('execution.continue')
+        accepted = self.request('serial.write', data_base64='Ug0=')
+        self.assertEqual(accepted['accepted'], 2)
+        self.assertGreater(accepted['state_revision'], operation['state_revision'])
+        read = self.request('io.read', port=0x3f8)
+        self.assertEqual(read['value'], ord('R'))
+        self.assertGreater(read['state_revision'], accepted['state_revision'])
+        self.assertEqual(self.request('execution.wait', operation_id=operation['operation_id']),
+                         {'running': True})
+        registers = self.request('state.get_registers')
+        self.assertFalse(self.machine.control['paused'])
+        self.assertGreater(registers['clock'], operation['clock'])
+        self.request('execution.pause')
+        self.assertEqual(list(self.machine.namespace['serial'].rx), [13])
 
 
 if __name__ == '__main__':
