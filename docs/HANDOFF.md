@@ -3,10 +3,13 @@
 FINISHED local: each validated input.keyboard/keyboard.scancode batch advances
 state_revision once after enqueue. Running input remains supported; enqueue does
 not execute the CPU or complete an active operation. Invalid batches preserve
-complete machine/control state. Stale coherent-observation and snapshot tokens
+complete machine/control state. Stale RPC coherent-observation and snapshot tokens
 now refuse; fresh snapshot metadata includes the changed keyboard queue.
-FINISHED gates: 38 affected tests pass on CPython and PyPy; omitting the enqueue
+FINISHED gates: 39 affected tests pass on CPython and PyPy; omitting the enqueue
 epoch bump fails all three new named controls, then exact restored source passes.
+The real JSON-lines server services input while its production CPU loop runs.
+Review: RPC batch handling is correct; separate confirmed VNC/Telnet producer
+epoch debt remains (host input can bypass revision). No frontend fix is implied.
 WIP: final-head public CI and integration after the API documentation rebase.
 Rebase onto the integrated API documentation head and reconcile its enqueue
 paragraph/sample; parent stays pinned to the previous runtime until integration.

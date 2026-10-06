@@ -266,6 +266,23 @@ class SocketRPCTests(unittest.TestCase):
         self.assertEqual(response['error']['code'], -32700)
         self.assertEqual(self.request('state.get_registers')['ip'], 0x100)
 
+    def test_keyboard_request_is_serviced_by_running_loop_over_json_lines(self):
+        self.machine.namespace['kb'] = keyboard.Keyboard()
+        self.machine.load(bytes.fromhex('eb fe'))
+        operation = self.request('execution.continue')
+        accepted = self.request('input.keyboard', events=[{'scan_code': 77},
+                                                         {'scan_code': 77, 'pressed': False}])
+        self.assertEqual(accepted['accepted'], 2)
+        self.assertGreater(accepted['state_revision'], operation['state_revision'])
+        self.assertEqual(self.request('execution.wait', operation_id=operation['operation_id']),
+                         {'running': True})
+        registers = self.request('state.get_registers')
+        self.assertFalse(self.machine.control['paused'])
+        self.assertGreater(registers['clock'], operation['clock'])
+        self.request('execution.pause')
+        self.assertEqual(list(self.machine.namespace['kb']._keyboard_buffer.queue), [77, 205])
+        self.assertEqual(self.machine.namespace['kb'].GetPressedScancodes(), [])
+
 
 if __name__ == '__main__':
     unittest.main()
