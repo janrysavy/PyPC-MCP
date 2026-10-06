@@ -239,6 +239,7 @@ at most65536 bytes in total, within1MiB. Address forms match `memory.read`.
 Unknown request/window fields and non-boolean `video_memory` are rejected.
 `video_text`, if supplied, must be an object containing only optional `page` or
 `display_address`, with the same selection rules and result as `video.text`.
+The two selector keys are mutually exclusive, even if equal or null.
 
 Result contains `state_revision`, `registers` (the existing
 `state.get_registers` result) and `memory` (ordered `memory.read`-shaped
@@ -342,6 +343,10 @@ or:
 ```json
 {"display_address":"0x0FA0"}
 ```
+
+The selector keys `page` and `display_address` are mutually exclusive. Supplying
+both returns JSON-RPC error `-32602`, even if their values are equal or null;
+no emulated state is changed. This also applies to nested `state.observe.video_text`.
 
 The page size is `columns * 25 * 2` bytes. CGA has 16 KiB of text/graphics RAM,
 so it exposes four 80-column pages or eight 40-column pages. VGA has 32 KiB of

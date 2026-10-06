@@ -1,3 +1,13 @@
+# Handoff - exclusive text address selectors, 2026-10-06
+
+FINISHED local: video.text and state.observe video_text reject simultaneous
+page/display_address keys with -32602, even equal/null values. Shared helper
+preflights before text reads. Separate selectors remain supported. Named
+complete configured-machine/control and production JSON-lines tests cover
+refusals and positive individual selectors; deliberate omitted-guard mutant
+must fail and restored final source must pass. Final-head public CI/PR
+integration remain WIP; parent must update its pin after rebase integration.
+
 # Handoff - mandatory common snapshot guard, 2026-10-06
 
 Shared RPC imports now require exactly one valid retained expected_sha256 or
