@@ -9,8 +9,9 @@ FINISHED gates: 42 affected tests pass under CPython and PyPy; removing the
 stopped-pause guard fails both new state-preservation controls, restored source
 passes. Scoped review found no defects; paired old/new continuation confirms the
 old handler retriggers the current breakpoint and the fixed handler reaches the
-next breakpoint. API/epoch rebase is complete. WIP: final-head public CI and
-integration after the keyboard epoch slice. Parent pin stays fixed.
+next breakpoint. PR73 epoch/API integrated at d9e0f159 after exact-head public CI.
+Rebase onto that merged master is complete. WIP: final-head public CI and
+pause integration. Parent pin stays fixed.
 
 Earlier handoff notes below describe their historical slices.
 
