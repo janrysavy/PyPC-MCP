@@ -70,10 +70,12 @@ def _key(key):
 
 
 def dump_disk_state(disk, mode='auto', embed_limit=64*1024*1024):
-    if (mode not in ('auto', 'embed', 'reference')
+    if (mode not in ('auto', 'embed', 'reference', 'reference-files')
             or type(embed_limit) is not int or embed_limit < 0):
         raise ValueError('invalid disk storage policy')
     if type(disk) is str:
+        if mode == 'reference-files':
+            mode = 'reference'
         data = Path(disk).read_bytes()
         if mode == 'auto':
             if len(data) > embed_limit:
@@ -84,6 +86,8 @@ def dump_disk_state(disk, mode='auto', embed_limit=64*1024*1024):
                 {'image': data} if mode == 'embed' else {})
     if type(disk) is not HostDirectoryFAT16:
         raise ValueError('unsupported disk type')
+    if mode == 'reference-files':
+        mode = 'embed'
     if mode == 'reference':
         raise ValueError(
             'host mounts require embedding their live image and sync state')
