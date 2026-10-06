@@ -2,7 +2,7 @@
 import ast
 import threading
 from pathlib import Path
-import bus, i8088, i8253, i8255, keyboard, vga, xtide
+import bus, i8088, i8253, i8255, keyboard, vga, xtide, uart8250
 import debughardware
 import debugtrace
 import videohistory
@@ -11,10 +11,12 @@ from machinesnapshots import LockedDisplay, MachineSnapshots
 from tests.test_execution_rpc import HeadlessMachine
 
 
-def machine(tmp_path):
+def machine(tmp_path, com1=False):
     disk = tmp_path/'disk.img'; disk.write_bytes(bytes(4096))
     kb = keyboard.Keyboard()
     devices = [i8253.i8253(), kb, i8255.i8255(kb), vga.VGA(False), xtide.XTIDE([str(disk)])]
+    if com1:
+        devices.append(uart8250.UART8250())
     b = bus.Bus(1048576, devices, [])
     cpu = i8088.i8088(b, devices, True)
     state = cpu.GetState(); state.SetCS(0x1000); state.SetIP(0); state.SetDS(0x1000)
@@ -39,9 +41,9 @@ def run(cpu, count=200):
     return events
 
 
-def rpc_machine(tmp_path):
+def rpc_machine(tmp_path, com1=False):
     harness = HeadlessMachine()
-    cpu = machine(tmp_path)
+    cpu = machine(tmp_path, com1=com1)
     display = LockedDisplay(cpu._devices[3])
     vnc = vncserver.VNCServer.__new__(vncserver.VNCServer)
     vnc._display = display
@@ -51,6 +53,8 @@ def rpc_machine(tmp_path):
                              hardware_trace=debughardware.HardwareTraceRecorder(),
                              machine_snapshots=MachineSnapshots(cpu, display, vnc),
                              video_history=videohistory.VideoHistory(cpu.GetState().GetClock))
+    if com1:
+        harness.namespace['serial'] = cpu._devices[5]
     # Bind production register methods to this real motherboard before testing.
     tree = ast.parse((Path(__file__).resolve().parents[1]/'main.py').read_text())
     body = next(n.body for n in tree.body if isinstance(n, ast.Try))

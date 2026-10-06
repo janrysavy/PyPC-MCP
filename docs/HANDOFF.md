@@ -1,3 +1,20 @@
+# Handoff - device operation epochs, 2026-10-06
+
+FINISHED local: successful serial.write batches and io.read bus operations advance
+state_revision once. Port reads conservatively invalidate guards even when that
+particular device read leaves no observable change; no per-device purity guesses.
+Running calls remain supported. Invalid input is atomic, and stale coherent
+observation/snapshot export/import tokens refuse after UART enqueue/consumption.
+PR75 frontend policy integrated at 86c0f17 after exact-head CI and no-defect review.
+FINISHED gates: 58 affected unittest checks plus four historical UART probes pass
+on CPython/PyPy. Each omitted serial/read epoch mutant makes the named stale-token
+control accept the old revision; exact restored source passes. Invalid parameters,
+full queue and loopback refusals preserve complete Machine/control state.
+WIP: scoped review and final-head public CI/integration.
+Parent source pin remains fixed until the combined repair/compiler witness.
+
+Earlier handoff notes below describe their historical slices.
+
 # Handoff - controlled frontend input, 2026-10-06
 
 FINISHED local: default JSON-RPC runs give Telnet/VNC no keyboard target, so

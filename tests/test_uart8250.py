@@ -55,16 +55,18 @@ def test_real_rpc_handler_validation():
     from pathlib import Path
     tree=ast.parse(Path('main.py').read_text(encoding='utf-8'))
     functions=[n for n in ast.walk(tree) if isinstance(n,ast.FunctionDef) and n.name in ('rpc_params','rpc_number','handle_debug')]
-    uart=UART8250();ns={'serial':uart,'base64':base64}
+    uart=UART8250();ns={'serial':uart,'base64':base64,'control':{'revision':123}}
     exec(compile(ast.Module(body=functions,type_ignores=[]),'main.py','exec'),ns)
     call=lambda m,p:ns['handle_debug']({'method':m,'params':p})
     assert call('serial.write',{'data_base64':'Ug0='})['accepted']==2
+    assert ns['control']['revision']==124
     before=uart.dump()
     for bad in ('!',None,'A'*5465,''):
         try:call('serial.write',{'data_base64':bad})
         except ValueError:pass
         else:raise AssertionError('bad serial input accepted')
         assert uart.dump()==before
+        assert ns['control']['revision']==124
     assert call('serial.status',{})['rx_pending']==2
 
 
