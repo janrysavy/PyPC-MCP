@@ -1,3 +1,13 @@
+# Handoff - complete configured-machine observation control, 2026-10-06
+
+FINISHED: follow-up review's immutability evidence gap is closed by comparing
+production capture_machine before/after a coherent observation on the complete
+fixture motherboard: CPU/PIC/PIT/DMA/keyboard/XTIDE/video, host RNG and pending
+transfer state. RAM buffers and debugger control remain identical as well.
+This scope is the supported configured machine, not unimplemented devices.
+CGA start tests passed28 cases, correcting prior commit's29 count.
+Final-head public CI and parent original-game common-contract proof pending.
+
 # Handoff - CGA CRTC start address, 2026-10-06
 
 FINISHED local: CRTC start is converted from word to wrapped byte address,
