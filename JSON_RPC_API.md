@@ -22,6 +22,13 @@ see `guest/README.md`.
 Ports must be distinct integers in 1..65535. `agent.capabilities.endpoint`
 reports the selected RPC port. Each instance should use its own writable disks.
 
+With JSON-RPC enabled (the default), Telnet and VNC are view-only: their keyboard
+messages do not enter the guest queue. Use `input.keyboard` or `keyboard.scancode`
+for controlled input. This prevents a frontend thread from changing input during
+a guarded observation or snapshot, matching MartyPC's controlled-input policy.
+For ordinary manual play, `--no-rpc` disables the RPC listener and enables normal
+Telnet/VNC keyboard input. There is no concurrent frontend-input/RPC-control mode.
+
 Each request and response is one UTF-8 JSON object terminated by `LF` (`\n`). A
 client may keep the connection open and send multiple requests. Requests are
 executed by the CPU thread at an instruction boundary. The returned state is
