@@ -11,28 +11,7 @@ import vncserver
 from machinecodec import capture_machine
 from machinesnapshots import LockedDisplay, MachineSnapshots
 from test_execution_rpc import HeadlessMachine
-from test_machinecodec import machine, run
-
-
-def rpc_machine(tmp_path):
-    harness = HeadlessMachine()
-    cpu = machine(tmp_path)
-    display = LockedDisplay(cpu._devices[3])
-    vnc = vncserver.VNCServer.__new__(vncserver.VNCServer)
-    vnc._display = display
-    vnc._frame_lock = threading.RLock()
-    harness.namespace.update(p=cpu, b=cpu._b, state=cpu.GetState(), scr=cpu._devices[3],
-                             debughardware=debughardware, debugtrace=debugtrace,
-                             hardware_trace=debughardware.HardwareTraceRecorder(),
-                             machine_snapshots=MachineSnapshots(cpu, display, vnc),
-                             video_history=videohistory.VideoHistory(cpu.GetState().GetClock))
-    # Bind production register methods to this real motherboard before testing.
-    tree = ast.parse((Path(__file__).resolve().parents[1]/'main.py').read_text())
-    body = next(n.body for n in tree.body if isinstance(n, ast.Try))
-    node = next(n for n in body if isinstance(n, ast.Assign) and
-                any(isinstance(t, ast.Name) and t.id == 'register_access' for t in n.targets))
-    exec(compile(ast.Module(body=[node], type_ignores=[]), 'main.py', 'exec'), harness.namespace)
-    return harness, cpu, vnc
+from tests.machine_fixture import machine, run, rpc_machine
 
 
 def test_production_rpc_restore_and_frame_invalidation(tmp_path):

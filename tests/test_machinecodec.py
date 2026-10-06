@@ -10,32 +10,7 @@ import bus, i8088, i8253, i8255, keyboard, vga, xtide
 from machinecodec import capture_machine, prepare_machine
 
 
-def machine(tmp_path):
-    disk = tmp_path/'disk.img'; disk.write_bytes(bytes(4096))
-    kb = keyboard.Keyboard()
-    devices = [i8253.i8253(), kb, i8255.i8255(kb), vga.VGA(False), xtide.XTIDE([str(disk)])]
-    b = bus.Bus(1048576, devices, [])
-    cpu = i8088.i8088(b, devices, True)
-    state = cpu.GetState(); state.SetCS(0x1000); state.SetIP(0); state.SetDS(0x1000)
-    # Repeated timer reads, RAM stores and increments exercise host RNG and ticks.
-    b._m._m[0x10000:0x1000d] = bytes.fromhex('ba4000eca20002ff060202ebf6')
-    cpu._io.Out(0x43, 0x36, False); cpu._io.Out(0x40, 17, False); cpu._io.Out(0x40, 0, False)
-    kb.PushKeyboardScancode(0x1e)
-    controller = devices[4]
-    for port, value in ((0x304,1),(0x306,1),(0x308,0),(0x30a,0),(0x30c,0),(0x30e,0xc5)):
-        controller.IO_Write(port,value)
-    for value in (11,22,33): controller.IO_Write(0x300,value)
-    for _ in range(11): cpu.Tick()
-    return cpu
-
-
-def run(cpu, count=200):
-    events = []
-    cpu.SetMemoryTraceHook(lambda *args: events.append(args))
-    for _ in range(count): cpu.Tick()
-    cpu.SetMemoryTraceHook(None)
-    for index in range(509): cpu._devices[4].IO_Write(0x300,index%251)
-    return events
+from tests.machine_fixture import machine, run
 
 
 def test_coordinated_continuation(tmp_path):
