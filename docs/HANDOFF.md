@@ -1,3 +1,17 @@
+# Handoff - mixed disk references and guarded import, 2026-10-06
+
+FINISHED local: reference-files references flat images while fully embedding
+host FAT image/files/sync state. Legacy policies unchanged; immutable references
+are verified then copied before guest writes. Canonical expected_sha256 import
+guard rejects malformed/mismatched hashes and both aliases; legacy sha256 stays.
+Explicit preserve_breakpoints defaults true with definitions/hits preserved;
+false clears all after successful restore. Exports add path/bytes metadata.
+Five stdlib tests pass on Windows CPython and bare PyPy, including complete
+fresh-process continuation, pending XTIDE write, host sync, immutable reference
+isolation, mismatch refusal before disk/state mutation and breakpoint policy.
+PR69 is rebase-integrated at c98c4af after all five final-head public CI checks.
+WIP: independent storage review/final-head CI, then parent pin/live-game replay.
+
 # Handoff - bare-PyPy full observation proof, 2026-10-06
 
 FINISHED: complete motherboard factory is shared in tests/machine_fixture.py,

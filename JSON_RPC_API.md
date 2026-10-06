@@ -871,12 +871,27 @@ Both methods require a paused machine and `expected_state_revision` equal to
 `session.status.state_revision`. Paths name files on the emulator host.
 
 - `machine.snapshot.export`: `path` must be a new file. Optional `disk_mode`
-  is `auto` (default), `embed`, or `reference`. Returns archive `sha256` and
-  current `state_revision`. The ZIP contains JSON plus hashed binary payloads.
+  is `auto` (default), `embed`, `reference`, or `reference-files`. Returns
+  `path`, archive `bytes`/`sha256` and current `state_revision`. The ZIP contains JSON plus hashed binary payloads.
 - `machine.snapshot.import`: `path`, new `disk_root` directory, optional archive
-  `sha256`, and optional `references` mapping string disk indices `0`/`1` to
+  legacy `sha256` or canonical `expected_sha256`, and optional `references` mapping string disk indices `0`/`1` to
   source image paths. Referenced images must match saved size and SHA-256.
   Returns the new revision and `machine_snapshot_restored` stop reason.
+
+`reference-files` stores flat-file disks as size/hash references while embedding
+host-mapped FAT disks completely, including their live image, host file contents,
+sync hashes and pending synchronization state. It does not reference arbitrary
+host directories. Legacy policies are unchanged: `reference` still refuses host
+mounts. Import copies each verified file reference into a new writable disk;
+subsequent guest writes cannot change the immutable reference.
+
+New shared clients supply `expected_sha256` (64 hexadecimal characters) on every
+import. Legacy `sha256` remains supported; supplying both aliases is rejected.
+Optional `preserve_breakpoints` is boolean, default `true`: retain permanent host
+breakpoint definitions and hit counters, clear transient predicates/operations
+and journals. `false` clears all breakpoints after successful installation.
+All new flags/hash fields are validated before reading/restoring the archive;
+refused requests retain the machine and existing debugger configuration.
 
 Import reconstructs CPU/RAM/ROM/device state, host RNG, disk bytes and host-FAT
 synchronization state. It remains paused; execution resumes only by a later

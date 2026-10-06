@@ -631,8 +631,21 @@ try:
             if not isinstance(path, str) or not path:
                 raise ValueError('path must be a nonempty host path')
             if method == 'machine.snapshot.export':
+                from pathlib import Path
                 digest = machine_snapshots.export(path, params.get('disk_mode', 'auto'))
-                return {'sha256': digest, 'state_revision': control['revision']}
+                return {'path': path, 'bytes': Path(path).stat().st_size,
+                        'sha256': digest, 'state_revision': control['revision']}
+            if 'expected_sha256' in params and 'sha256' in params:
+                raise ValueError('supply expected_sha256 or legacy sha256, not both')
+            expected_sha256 = params.get('expected_sha256', params.get('sha256'))
+            if 'expected_sha256' in params:
+                if (not isinstance(expected_sha256, str) or len(expected_sha256) != 64
+                        or any(c not in '0123456789abcdefABCDEF' for c in expected_sha256)):
+                    raise ValueError('expected_sha256 must be a 64-character hexadecimal digest')
+                expected_sha256 = expected_sha256.lower()
+            preserve = params.get('preserve_breakpoints', True)
+            if not isinstance(preserve, bool):
+                raise ValueError('preserve_breakpoints must be boolean')
             disk_root = params.get('disk_root')
             if not isinstance(disk_root, str) or not disk_root:
                 raise ValueError('disk_root must be a new host directory path')
@@ -640,11 +653,14 @@ try:
             if (not isinstance(references, dict)
                     or any(k not in ('0', '1') or not isinstance(v, str) or not v for k,v in references.items())):
                 raise ValueError('references must map disk indices 0/1 to host paths')
-            machine_snapshots.restore(path, disk_root, params.get('sha256'),
+            machine_snapshots.restore(path, disk_root, expected_sha256,
                                       {int(k):v for k,v in references.items()})
             video_history.reset()
             p._io.SetVideoWriteHook(None, None)
             rpc_clear_run_until()
+            if not preserve:
+                for breakpoint in breakpoints.list():
+                    breakpoints.delete(breakpoint['breakpoint_id'])
             control['operations'].clear()
             control['active_operation'] = None
             control['snapshots'].clear()
