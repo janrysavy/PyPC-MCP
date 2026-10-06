@@ -8,8 +8,9 @@ separate frontend epoch debt recorded below, without a callback revision race.
 FINISHED gates: 50 affected tests pass on CPython/PyPy, including actual startup
 listeners with and without RPC and every VNC mapped key under controlled policy.
 Restoring the old frontend keyboard binding fails the complete-state control;
-exact restored source passes. WIP: review, final public CI and rebase integration
-after the committed keyboard epoch/pause slices. Parent pin remains unchanged.
+exact restored source passes. PR73 and PR74 rebase-integrated at d8b3c0ef after
+exact final public CI; this branch is rebased on that master. WIP: scoped review,
+final public CI and frontend-policy integration. Parent pin remains unchanged.
 
 Earlier handoff notes below describe their historical slices.
 
