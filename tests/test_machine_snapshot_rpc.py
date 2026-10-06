@@ -60,7 +60,7 @@ def test_rpc_refusal_preserves_machine(tmp_path, failure):
 def test_input_during_prepare_is_deferred_until_after_install(tmp_path, monkeypatch):
     h, cpu, vnc = rpc_machine(tmp_path)
     path = str(tmp_path/'saved.pypc')
-    h.rpc('machine.snapshot.export', path=path, expected_state_revision=0)
+    exported = h.rpc('machine.snapshot.export', path=path, expected_state_revision=0)
     old_queue = capture_machine(cpu)[0]['keyboard']['fields']['queue']
     attempted, delivered = threading.Event(), threading.Event()
     def input_thread():
@@ -75,7 +75,8 @@ def test_input_during_prepare_is_deferred_until_after_install(tmp_path, monkeypa
         assert not delivered.wait(0.05)
         return original(*args, **kwargs)
     monkeypatch.setattr(machinesnapshots, 'prepare_machine', prepare)
-    h.rpc('machine.snapshot.import', path=path, disk_root=str(tmp_path/'restore'), expected_state_revision=0)
+    h.rpc('machine.snapshot.import', path=path, disk_root=str(tmp_path/'restore'), expected_state_revision=0,
+          expected_sha256=exported['sha256'])
     producer.join(1)
     assert delivered.is_set()
     assert capture_machine(cpu)[0]['keyboard']['fields']['queue'] == old_queue + [0x30]

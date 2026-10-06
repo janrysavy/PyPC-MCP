@@ -1,3 +1,13 @@
+# Handoff - mandatory common snapshot guard, 2026-10-06
+
+Shared RPC imports now require exactly one valid retained expected_sha256 or
+legacy sha256. Missing, malformed, mismatched and ambiguous guards refuse before
+restore; old unguarded RPC callers intentionally fail. Internal codec APIs and
+historical evidence unchanged. Current lock/input test uses its export receipt.
+Five stdlib storage cases cover both aliases, invalid flags with a valid digest,
+full fresh-process continuation and refusal without machine/debugger/disk writes.
+Final-head local/public checks and storage review must pass before PR70 merge.
+
 # Handoff - mixed disk references and guarded import, 2026-10-06
 
 FINISHED local: reference-files references flat images while fully embedding
