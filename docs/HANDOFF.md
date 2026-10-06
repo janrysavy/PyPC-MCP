@@ -1,3 +1,12 @@
+# Handoff - CGA mirrored observation aperture, 2026-10-06
+
+Independent review found coherent observation refused CGA BC000..BFFFF even
+though the bus maps that upper mirror. Safe peeks now wrap at16 KiB, respecting
+higher-priority overlays. Eight new observation tests pass on CPython/PyPy,
+including both mirror boundaries and an overlapping ROM. The unchanged-state
+test covers its captured CPU clock/IP/RAM/video/control fields, not arbitrary
+unattached devices. Follow-up independent review/CI remain pending.
+
 # Handoff - coherent stopped observation, 2026-10-06
 
 FINISHED local state.observe: paused/revision-guarded registers, up to16 safe

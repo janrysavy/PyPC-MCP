@@ -513,9 +513,11 @@ try:
                 storage, offset = owner._m, address
             elif type(owner) is rom.Rom:
                 storage, offset = owner._contents, address - owner._offset
-            elif owner is scr and scr._ram_offset <= address < scr._ram_offset + len(scr._ram):
-                storage, offset = scr._ram, address - scr._ram_offset
-                stop = min(stop, scr._ram_offset + len(scr._ram))
+            elif owner is scr and address >= scr._ram_offset:
+                storage = scr._ram
+                offset = (address - scr._ram_offset) % len(storage)
+                # CGA mirrors its 16 KiB backing throughout the32 KiB aperture.
+                stop = min(stop, address + len(storage) - offset)
             else:
                 raise ValueError('observation memory maps a device without a safe peek')
             plan.append((storage, offset, stop - address))
