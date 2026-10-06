@@ -30,7 +30,7 @@ def machine(video='cga'):
 
 
 class ObservationTests(unittest.TestCase):
-    def test_equal_separate_reads_and_complete_machine_unchanged(self):
+    def test_equal_separate_reads_preserve_captured_state(self):
         for adapter in ('cga', 'vga'):
             with self.subTest(adapter=adapter):
                 m, video = machine(adapter)
@@ -79,6 +79,26 @@ class ObservationTests(unittest.TestCase):
         result = m.rpc('state.observe', expected_state_revision=0,
                       memory=[{'address': 0xb8000, 'length': 4000}])
         self.assertEqual(result['memory'][0]['sha256'], hashlib.sha256(original[:4000]).hexdigest())
+
+    def test_cga_mirror_and_crossing_wrap_preserve_bus_priority(self):
+        m, video = machine()
+        video._ram[-2:] = b'AB'
+        video._ram[:3] = b'CDE'
+        for address, length, wanted in ((0xbc000, 3, b'CDE'),
+                                        (0xbbffe, 5, b'ABCDE'),
+                                        (0xbfffe, 2, b'AB')):
+            with self.subTest(address=address):
+                observed = m.rpc('state.observe', expected_state_revision=0,
+                                 memory=[{'address':address, 'length':length}])['memory'][0]
+                self.assertEqual(observed, m.rpc('memory.read', address=address, length=length))
+                self.assertEqual(observed['data_hex'], wanted.hex())
+        image = rom.Rom.__new__(rom.Rom)
+        image._offset, image._contents = 0xbc000, [90]
+        m.memory._devices.insert(0, image)
+        m.memory.RecreateCache()
+        observed = m.rpc('state.observe', expected_state_revision=0,
+                         memory=[{'address':0xbbffe,'length':5}])['memory'][0]
+        self.assertEqual(observed['data_hex'], b'ABZDE'.hex())
 
     def test_paused_and_revision_guards(self):
         m, _ = machine()
