@@ -1,3 +1,18 @@
+# Handoff - controlled frontend input, 2026-10-06
+
+FINISHED local: default JSON-RPC runs give Telnet/VNC no keyboard target, so
+their callbacks cannot mutate queued input during guarded captures. RPC keyboard
+input still works. --no-rpc disables the RPC listener and retains normal frontend
+keyboard input; the CPU loop supports an absent debug server. This closes the
+separate frontend epoch debt recorded below, without a callback revision race.
+FINISHED gates: 50 affected tests pass on CPython/PyPy, including actual startup
+listeners with and without RPC and every VNC mapped key under controlled policy.
+Restoring the old frontend keyboard binding fails the complete-state control;
+exact restored source passes. WIP: review, final public CI and rebase integration
+after the committed keyboard epoch/pause slices. Parent pin remains unchanged.
+
+Earlier handoff notes below describe their historical slices.
+
 # Handoff - idempotent stopped pause, 2026-10-06
 
 FINISHED local: execution.pause on a stopped machine preserves the complete

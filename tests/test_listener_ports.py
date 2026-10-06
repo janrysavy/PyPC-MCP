@@ -28,6 +28,8 @@ class ListenerPortTests(unittest.TestCase):
         result = self.parse()
         self.assertEqual((result.rpc_port, result.telnet_port, result.vnc_port),
                          (2301, 2300, 5902))
+        self.assertFalse(result.no_rpc)
+        self.assertTrue(self.parse('--no-rpc').no_rpc)
         result = self.parse('--rpc-port', '12301', '--telnet-port', '12300',
                             '--vnc-port', '15902')
         self.assertEqual((result.rpc_port, result.telnet_port, result.vnc_port),
@@ -51,7 +53,10 @@ class ListenerPortTests(unittest.TestCase):
                 if attempt == 2:
                     raise
 
-    def exercise_process(self):
+    def test_process_without_rpc_binds_only_frontends(self):
+        self.exercise_process(no_rpc=True)
+
+    def exercise_process(self, no_rpc=False):
         root = Path(__file__).resolve().parents[1]
         # Reserve distinct free ports together; release immediately before launch.
         reservations = [socket.socket() for _ in range(3)]
@@ -76,11 +81,11 @@ class ListenerPortTests(unittest.TestCase):
                 process = subprocess.Popen(
                     [sys.executable, '-u', '-c', code, str(root),
                      '--rpc-port', str(ports[0]), '--telnet-port', str(ports[1]),
-                     '--vnc-port', str(ports[2])], cwd=scratch,
+                     '--vnc-port', str(ports[2])] + (['--no-rpc'] if no_rpc else []), cwd=scratch,
                     stdout=log, stderr=log)
                 try:
                     deadline = time.monotonic() + 15
-                    for port in ports:
+                    for port in ports[1:] if no_rpc else ports:
                         while True:
                             try:
                                 connection = socket.create_connection(('127.0.0.1', port), timeout=1)
@@ -91,11 +96,16 @@ class ListenerPortTests(unittest.TestCase):
                                     log.seek(0)
                                     raise ConnectionError(log.read().decode(errors='replace'))
                                 time.sleep(0.02)
-                    with socket.create_connection(('127.0.0.1', ports[0]), timeout=3) as client:
-                        client.sendall(b'{"jsonrpc":"2.0","id":1,"method":"agent.capabilities"}\n')
-                        with client.makefile('rb') as stream:
-                            reply = json.loads(stream.readline())
-                    self.assertEqual(reply['result']['endpoint'], f'127.0.0.1:{ports[0]}')
+                    if no_rpc:
+                        with socket.socket() as client:
+                            client.settimeout(1)
+                            self.assertNotEqual(client.connect_ex(('127.0.0.1', ports[0])), 0)
+                    else:
+                        with socket.create_connection(('127.0.0.1', ports[0]), timeout=3) as client:
+                            client.sendall(b'{"jsonrpc":"2.0","id":1,"method":"agent.capabilities"}\n')
+                            with client.makefile('rb') as stream:
+                                reply = json.loads(stream.readline())
+                        self.assertEqual(reply['result']['endpoint'], f'127.0.0.1:{ports[0]}')
                     # Current server greetings identify which listener owns a port;
                     # this does not assert complete protocol conformance.
                     for port, banner in ((ports[1], b'\xff\xf4\x25'),

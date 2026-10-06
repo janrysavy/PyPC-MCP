@@ -32,6 +32,8 @@ class Telnet:
         t.start()
 
     def push(self, c):
+        if self._kb is None:
+            return
         key_map = dict()
         key_map[8] = ( 0x0e, )
         key_map[9] = ( 0x0f, )

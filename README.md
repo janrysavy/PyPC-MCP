@@ -14,6 +14,11 @@
 > `127.0.0.1:2301` using JSON-lines framing; despite the repository name, it is
 > not yet a Model Context Protocol server.
 >
+> RPC control is enabled by default. Telnet/VNC then display the machine but
+> cannot inject keys; use the RPC keyboard methods. Pass `--no-rpc` for ordinary
+> Telnet/VNC keyboard control with no RPC listener. This keeps controlled input
+> and guarded observations/snapshots under the CPU thread's ownership.
+>
 > **Host-directory FAT16 mount:** From the repository root, pass a host
 > directory with `--host-dir`; it appears inside DOS as the guest `D:` drive.
 > The existing `C:` boot image is unchanged.

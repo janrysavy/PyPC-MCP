@@ -45,6 +45,8 @@ def ParseArguments():
         help='reserve D8000h-D9FFFh for the DOS control worker')
     parser.add_argument('--game-port', action='store_true',
         help='attach two analog two-button joysticks at port201h')
+    parser.add_argument('--no-rpc', action='store_true',
+        help='disable JSON-RPC control and permit Telnet/VNC keyboard input')
     for name, default in (('rpc', 2301), ('telnet', 2300), ('vnc', 5902)):
         parser.add_argument(f'--{name}-port', type=int, default=default,
                             help=f'{name} listener port (default: {default})')
@@ -163,12 +165,14 @@ try:
         p.SetInterruptServiceHook(VGAInterruptService(scr))
 
     frontend_display = LockedDisplay(scr)
-    t = telnet.Telnet(arguments.telnet_port, kb, frontend_display)
+    # A controlled machine has one input owner; frontend threads remain viewers.
+    frontend_keyboard = kb if arguments.no_rpc else None
+    t = telnet.Telnet(arguments.telnet_port, frontend_keyboard, frontend_display)
     vnc_display = (vncspeed.SpeedDisplay(frontend_display, state.GetClock)
                    if arguments.vnc_speed_overlay else frontend_display)
-    v = vncserver.VNCServer(vnc_display, kb, arguments.vnc_port, False)
+    v = vncserver.VNCServer(vnc_display, frontend_keyboard, arguments.vnc_port, False)
     machine_snapshots = MachineSnapshots(p, frontend_display, v)
-    debug = debugserver.DebugServer(arguments.rpc_port)
+    debug = None if arguments.no_rpc else debugserver.DebugServer(arguments.rpc_port)
     control = {
         'paused': False, 'step': False, 'revision': 0,
         'snapshot_number': 0, 'snapshots': {},
@@ -1034,13 +1038,15 @@ try:
 
         raise LookupError(f'unknown method: {method}')
 
-    print(f'Use: "telnet localhost {arguments.telnet_port}" to interact with the emulated system')
-    print(f'and/or connect using a VNC client to localhost:{arguments.vnc_port} (preferred)')
+    if arguments.no_rpc:
+        print(f'Use Telnet localhost:{arguments.telnet_port} or VNC localhost:{arguments.vnc_port} for keyboard input')
+    else:
+        print(f'Telnet localhost:{arguments.telnet_port} and VNC localhost:{arguments.vnc_port} are view-only; use JSON-RPC keyboard input')
 
     p_time = time.time()
     p_cycles = 0
     while True:
-        if debug.has_pending():
+        if debug is not None and debug.has_pending():
             debug.process_pending(handle_debug)
         if control['paused']:
             time.sleep(0.001)
