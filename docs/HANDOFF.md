@@ -1,3 +1,11 @@
+# Handoff - bare-PyPy full observation proof, 2026-10-06
+
+FINISHED: complete motherboard factory is shared in tests/machine_fixture.py,
+with no pytest dependency. The full configured-machine immutability proof now
+runs as unittest on bare PyPy and CPython, with scratch confined to.test-tmp.
+Existing pytest snapshot/continuation tests use the same factory.
+Final-head CI/review/parent live-game integration still pending.
+
 # Handoff - complete configured-machine observation control, 2026-10-06
 
 FINISHED: follow-up review's immutability evidence gap is closed by comparing

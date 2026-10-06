@@ -171,27 +171,33 @@ class ObservationSocketTests(unittest.TestCase):
 
 
 
-def test_observation_preserves_complete_configured_machine(tmp_path):
-    from tests.test_machine_snapshot_rpc import rpc_machine
-    from machinecodec import capture_machine
-    from statecodec import dump_cpu_state
-    h, cpu, _ = rpc_machine(tmp_path)
-    helpers, _ = machine()
-    h.namespace.update(rom=rom,
-                       ReadTextScreen=helpers.namespace['ReadTextScreen'],
-                       ReadTextCells=helpers.namespace['ReadTextCells'])
-    before = capture_machine(cpu)
-    control = copy.deepcopy(h.control)
-    result = h.rpc('state.observe', expected_state_revision=0,
-                   memory=[{'address':0x10000,'length':32},
-                           {'address':0xb8000,'length':4000}],
-                   video_text={}, video_memory=True)
-    assert capture_machine(cpu) == before
-    assert h.control == control
-    assert dump_cpu_state(cpu.GetState()) == before[0]['cpu']
-    assert result['registers'] == h.rpc('state.get_registers')
-    # The board fixture owns real PIC/PIT/keyboard/DMA/XTIDE/video devices,
-    # host RNG and pending disk transfers, all authenticated by capture_machine.
+class CompleteObservationTests(unittest.TestCase):
+    def test_observation_preserves_complete_configured_machine(self):
+        from tests.machine_fixture import rpc_machine
+        from machinecodec import capture_machine
+        from statecodec import dump_cpu_state
+        from tempfile import TemporaryDirectory
+        directory = Path(__file__).resolve().parents[1] / ".test-tmp"
+        directory.mkdir(exist_ok=True)
+        with TemporaryDirectory(dir=directory) as scratch:
+            h, cpu, _ = rpc_machine(Path(scratch))
+            helpers, _ = machine()
+            h.namespace.update(rom=rom,
+                               ReadTextScreen=helpers.namespace['ReadTextScreen'],
+                               ReadTextCells=helpers.namespace['ReadTextCells'])
+            before = capture_machine(cpu)
+            control = copy.deepcopy(h.control)
+            result = h.rpc('state.observe', expected_state_revision=0,
+                           memory=[{'address':0x10000,'length':32},
+                                   {'address':0xb8000,'length':4000}],
+                           video_text={}, video_memory=True)
+            assert capture_machine(cpu) == before
+            assert h.control == control
+            assert dump_cpu_state(cpu.GetState()) == before[0]['cpu']
+            assert result['registers'] == h.rpc('state.get_registers')
+            # The board fixture owns real PIC/PIT/keyboard/DMA/XTIDE/video devices,
+            # host RNG and pending disk transfers, all authenticated by capture_machine.
+
 
 if __name__ == '__main__':
     unittest.main()
