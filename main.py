@@ -207,7 +207,10 @@ try:
             space = address.get('space', 'physical')
             offset = rpc_number(address.get('offset'), 'address.offset')
             if space == 'segmented':
-                offset += rpc_number(address.get('segment'), 'address.segment') * 16
+                segment = rpc_number(address.get('segment'), 'address.segment')
+                if not 0 <= segment <= 0xffff or not 0 <= offset <= 0xffff:
+                    raise ValueError('segmented address segment and offset must be 16-bit values')
+                offset = (segment * 16 + offset) & 0xfffff
             elif space not in ('physical', 'linear'):
                 raise ValueError('address.space must be physical, linear, or segmented')
         else:
@@ -999,12 +1002,14 @@ try:
                 raise ValueError('execution.step supports mode=into only')
             if not control['paused']:
                 raise ValueError('execution.step requires a paused emulator')
+            operation = rpc_start_operation('step')
             rpc_clear_run_until()
             control['step'] = True
             control['paused'] = False
             control['skip_breakpoint_id'] = rpc_resume_skip_id()
             control['last_stop'] = None
-            return {'stepping': True, **rpc_registers()}
+            return {'stepping': True, 'operation_id': operation['operation_id'],
+                    **rpc_registers()}
 
         raise LookupError(f'unknown method: {method}')
 

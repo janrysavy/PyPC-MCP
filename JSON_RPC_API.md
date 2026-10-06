@@ -277,7 +277,8 @@ An address object has this shape:
 
 `space` is `physical`, `linear`, or `segmented`. For `segmented`, supply
 `{"space":"segmented","segment":"0xB800","offset":"0x0000"}` and the
-linear address is `segment * 16 + offset`. All accesses must remain within the
+physical address is `(segment * 16 + offset) & 0xFFFFF`; both fields
+must be16-bit values. Physical/linear address forms do not wrap. All accesses must remain within the
 1 MiB address space. Device mappings are observed through the emulator bus.
 
 Result:
@@ -800,7 +801,10 @@ authorizes exactly one `p.Tick()` call and then pauses again at the following
 instruction boundary. `mode:"over"` is rejected because PyPC does not yet have
 temporary breakpoint support.
 
-Result is the current register object with `stepping:true` added. Calling it while
+Result is the entry register object with `stepping:true` and `operation_id`
+added. It acknowledges the request before execution. Use `execution.wait`
+with that ID to obtain the actual completed `step`, breakpoint or pause stop
+and its final registers; the acknowledgement is not post-step evidence. Calling it while
 running returns `-32602`.
 
 ## Minimal Python client
