@@ -20,6 +20,7 @@ import debugtrace
 import debughardware
 import debugserver
 import i8088
+import keyboard
 
 
 class IdleTransport:
@@ -83,6 +84,23 @@ class HeadlessMachine:
 
 
 class ExecutionRPCTests(unittest.TestCase):
+    def test_running_keyboard_enqueue_advances_epoch_without_completing_operation(self):
+        machine = HeadlessMachine()
+        machine.namespace['kb'] = keyboard.Keyboard()
+        machine.load(b'\x90')
+        operation = machine.rpc('execution.continue')
+        before = machine.rpc('state.get_registers')
+        accepted = machine.rpc('input.keyboard', events=[{'scan_code': 77},
+                                                         {'scan_code': 77, 'pressed': False}])
+        self.assertEqual(accepted['state_revision'], before['state_revision'] + 1)
+        self.assertFalse(machine.control['paused'])
+        self.assertEqual(machine.rpc('execution.wait', operation_id=operation['operation_id']),
+                         {'running': True})
+        after = machine.rpc('state.get_registers')
+        self.assertEqual(after['clock'], before['clock'])
+        self.assertEqual(after['ip'], before['ip'])
+        self.assertEqual(list(machine.namespace['kb']._keyboard_buffer.queue), [77, 205])
+
     def test_plain_continue_batches_sixty_four_unobserved_instructions(self):
         machine = HeadlessMachine()
         machine.load(bytes.fromhex('eb fe'))
